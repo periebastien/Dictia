@@ -397,4 +397,107 @@ mod tests {
             "HTTP 502 : Bad gateway"
         );
     }
+
+    /// Faux serveur HTTP : capture la requête et répond en SSE.
+    async fn serve_once(response: &'static str) -> (String, tokio::task::JoinHandle<Vec<u8>>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/v1", listener.local_addr().unwrap());
+        let handle = tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut req = Vec::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = sock.read(&mut buf).await.unwrap();
+                req.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&req);
+                let Some(head_end) = text.find("\r\n\r\n") else {
+                    continue;
+                };
+                let len = text[..head_end].lines().find_map(|l| {
+                    l.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|v| v.trim().parse::<usize>().unwrap())
+                });
+                let done = match len {
+                    Some(len) => req.len() >= head_end + 4 + len,
+                    None => req.ends_with(b"0\r\n\r\n"),
+                };
+                if done || n == 0 {
+                    break;
+                }
+            }
+            sock.write_all(response.as_bytes()).await.unwrap();
+            sock.shutdown().await.unwrap();
+            req
+        });
+        (base, handle)
+    }
+
+    fn backend(base_url: String) -> StandardBackend {
+        let api = ApiConfig {
+            base_url,
+            ..Default::default()
+        };
+        StandardBackend::new(&api, "sk-test".into()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn end_to_end_streaming_request() {
+        let (base, server) = serve_once(concat!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+            "data: {\"type\":\"transcript.text.delta\",\"delta\":\"Bonjour\"}\n\n",
+            "data: {\"type\":\"transcript.text.done\",\"text\":\"Bonjour.\"}\n\n",
+        ))
+        .await;
+        let backend = backend(base);
+        let mut events = Vec::new();
+        let mut progress = |p: Progress<'_>| events.push(format!("{p:?}"));
+        let text = backend
+            .transcribe(
+                AudioPayload::flac(b"fLaC-fake".to_vec()),
+                "Vocabulaire : Dictia.",
+                &mut progress,
+            )
+            .await
+            .unwrap();
+        assert_eq!(text, "Bonjour.");
+        assert_eq!(events, ["ResponseStarted", "Delta(\"Bonjour\")"]);
+
+        let req = String::from_utf8_lossy(&server.await.unwrap()).into_owned();
+        assert!(
+            req.starts_with("POST /v1/audio/transcriptions HTTP/1.1"),
+            "{req}"
+        );
+        assert!(req.contains("authorization: Bearer sk-test"), "{req}");
+        assert!(req.contains("multipart/form-data; boundary="), "{req}");
+        for expected in [
+            "name=\"model\"\r\n\r\ngpt-4o-transcribe",
+            "name=\"language\"\r\n\r\nfr",
+            "name=\"stream\"\r\n\r\ntrue",
+            "name=\"prompt\"\r\n\r\nVocabulaire : Dictia.",
+            "name=\"file\"; filename=\"audio.flac\"\r\nContent-Type: audio/flac\r\n\r\nfLaC-fake",
+        ] {
+            assert!(req.contains(expected), "manque {expected:?} dans :\n{req}");
+        }
+    }
+
+    #[tokio::test]
+    async fn end_to_end_http_error() {
+        let (base, _server) = serve_once(concat!(
+            "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
+            "{\"error\":{\"message\":\"Incorrect API key provided\"}}",
+        ))
+        .await;
+        let mut noop = |_: Progress<'_>| {};
+        let err = backend(base)
+            .transcribe(AudioPayload::flac(vec![0; 8]), "", &mut noop)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "HTTP 401 (clé API invalide ?) : Incorrect API key provided"
+        );
+    }
 }
