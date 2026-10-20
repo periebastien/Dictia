@@ -5,6 +5,10 @@
 
 // Pas de console en release : Dictia vit dans la zone de notification.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Modules câblés progressivement ; retiré quand l'application est assemblée.
+#![allow(dead_code)]
+
+mod config;
 
 fn main() {
     eprintln!("Dictia : initialisation en cours.");
