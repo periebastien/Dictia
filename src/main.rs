@@ -10,6 +10,8 @@
 
 mod audio;
 mod config;
+mod inject;
+mod platform;
 mod transcription;
 mod vocab;
 
