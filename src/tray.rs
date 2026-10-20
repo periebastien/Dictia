@@ -19,7 +19,7 @@ impl TrayState {
     pub fn tooltip(self, shortcut: &str) -> String {
         match self {
             Self::Idle => format!("Dictia — prêt ({shortcut})"),
-            Self::Recording => format!("Dictia — enregistrement… ({shortcut} pour terminer)"),
+            Self::Recording => "Dictia — enregistrement…".to_owned(),
             Self::Processing => "Dictia — transcription…".to_owned(),
             Self::Error => "Dictia — erreur, voir dictia.log".to_owned(),
         }
@@ -190,7 +190,12 @@ mod tests {
             .contains("Ctrl+Alt+Espace"));
         // Limite Windows : 127 caractères.
         for s in TrayState::ALL {
-            assert!(s.tooltip("Ctrl+Alt+Espace").chars().count() < 128);
+            assert!(
+                s.tooltip("Ctrl+Alt+Espace, ou maintenir Alt+Maj+Espace")
+                    .chars()
+                    .count()
+                    < 128
+            );
         }
     }
 }

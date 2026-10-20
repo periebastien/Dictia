@@ -1,8 +1,9 @@
 # Dictia
 
 Dictée vocale pour Windows, écrite en Rust. Appuyez sur **Ctrl+Alt+Espace**,
-parlez, appuyez de nouveau : le texte transcrit par OpenAI est tapé au curseur,
-dans la fenêtre où vous étiez.
+parlez, appuyez de nouveau (ou maintenez **Alt+Maj+Espace** le temps de
+parler) : le texte transcrit par OpenAI est tapé au curseur, dans la fenêtre où
+vous étiez.
 
 Objectif n° 1 : **la latence minimale** entre la fin de la parole et
 l'apparition du texte. Le cahier des charges complet se trouve dans
@@ -10,7 +11,7 @@ l'apparition du texte. Le cahier des charges complet se trouve dans
 
 ## Statut : MVP (étape 1)
 
-- raccourci global en mode bascule ;
+- deux raccourcis globaux : mode bascule et mode « maintenir pour parler » ;
 - capture du micro par défaut, conversion mono 16 kHz pendant la capture ;
 - suppression des silences de début et de fin, encodage FLAC en mémoire ;
 - connexion TLS ouverte dès le 1er appui ;
@@ -74,7 +75,8 @@ language = "fr"
 timeout_secs = 30
 
 [hotkey]
-shortcut = "Ctrl+Alt+Espace"          # Ctrl, Alt, Maj, Win + touche
+shortcut = "Ctrl+Alt+Espace"          # bascule : Ctrl, Alt, Maj, Win + touche
+push_to_talk = "Alt+Maj+Espace"       # maintenir pour parler ; "" = désactivé
 
 [audio]
 silence_threshold_db = -50.0          # seuil de silence (dBFS)
@@ -124,9 +126,17 @@ configuration.
 1. Lancez `dictia.exe` : une pastille bleue avec un micro apparaît dans la zone
    de notification.
 2. Placez le curseur là où le texte doit aller.
-3. **Ctrl+Alt+Espace** : l'icône devient rouge, parlez.
-4. **Ctrl+Alt+Espace** de nouveau : l'icône devient orange, puis le texte est
-   tapé dans la fenêtre d'origine, même si vous en avez changé entre-temps.
+3. Deux façons de dicter :
+   - **mode bascule** : **Ctrl+Alt+Espace** (l'icône devient rouge), parlez,
+     puis **Ctrl+Alt+Espace** de nouveau ;
+   - **maintenir pour parler** : gardez **Alt+Maj+Espace** enfoncé pendant que
+     vous parlez, relâchez quand vous avez fini.
+4. L'icône devient orange, puis le texte est tapé dans la fenêtre d'origine,
+   même si vous en avez changé entre-temps.
+
+Les deux raccourcis se règlent dans `config.toml` (`shortcut` et
+`push_to_talk`) ; laissez `push_to_talk = ""` pour n'utiliser que le mode
+bascule.
 
 En cas d'erreur (réseau, clé invalide, micro), un son système retentit,
 l'icône devient grise et le détail est écrit dans `dictia.log`.

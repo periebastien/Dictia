@@ -36,10 +36,14 @@ language = "fr"
 timeout_secs = 30
 
 [hotkey]
-# Raccourci global, en mode bascule : 1er appui = début, 2e appui = fin.
 # Modificateurs : Ctrl, Alt, Maj (ou Shift), Win.
 # Touches : Espace, Entrée, F1 à F24, A à Z, 0 à 9…
+#
+# Mode bascule : 1er appui = début, 2e appui = fin.
 shortcut = "Ctrl+Alt+Espace"
+# Mode « maintenir pour parler » (push-to-talk) : l'enregistrement dure tant
+# que le raccourci est maintenu. Laissez vide ("") pour le désactiver.
+push_to_talk = "Alt+Maj+Espace"
 
 [audio]
 # Niveau (dBFS) sous lequel un bloc de 20 ms est considéré comme du silence.
@@ -118,12 +122,14 @@ impl ApiConfig {
 #[serde(default)]
 pub struct HotkeyConfig {
     pub shortcut: String,
+    pub push_to_talk: String,
 }
 
 impl Default for HotkeyConfig {
     fn default() -> Self {
         Self {
             shortcut: "Ctrl+Alt+Espace".into(),
+            push_to_talk: "Alt+Maj+Espace".into(),
         }
     }
 }

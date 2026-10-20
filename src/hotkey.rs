@@ -1,8 +1,10 @@
-//! Raccourci clavier global, en mode bascule.
+//! Raccourcis clavier globaux : mode bascule et mode « maintenir pour parler ».
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{bail, Result};
+
+use crate::config::HotkeyConfig;
 
 /// Convertit un raccourci saisi en français (« Ctrl+Alt+Espace ») vers la
 /// syntaxe de `global-hotkey` (« ctrl+alt+space »).
@@ -34,21 +36,76 @@ pub fn normalize(shortcut: &str) -> Result<String> {
     Ok(mapped.join("+"))
 }
 
-/// Ignore l'auto-répétition : un maintien prolongé ne compte que pour un
-/// appui, le suivant n'étant accepté qu'après relâchement.
-#[derive(Debug, Default)]
-pub struct PressFilter {
+/// Comportement d'un raccourci.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// 1er appui = début, 2e appui = fin.
+    Toggle,
+    /// Enregistre tant que le raccourci est maintenu.
+    PushToTalk,
+}
+
+/// Ordre transmis au contrôleur de dictée.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    Toggle,
+    Start,
+    Stop,
+}
+
+/// Raccourcis actifs d'après la configuration (le push-to-talk est
+/// facultatif). Refuse deux fois le même raccourci.
+pub fn bindings(cfg: &HotkeyConfig) -> Result<Vec<(String, Mode)>> {
+    let mut out = vec![(cfg.shortcut.trim().to_owned(), Mode::Toggle)];
+    let ptt = cfg.push_to_talk.trim();
+    if !ptt.is_empty() {
+        if normalize(ptt)? == normalize(&cfg.shortcut)? {
+            bail!("shortcut et push_to_talk doivent être deux raccourcis différents ({ptt})");
+        }
+        out.push((ptt.to_owned(), Mode::PushToTalk));
+    }
+    Ok(out)
+}
+
+/// Description courte pour l'infobulle et le journal.
+pub fn describe(cfg: &HotkeyConfig) -> String {
+    let ptt = cfg.push_to_talk.trim();
+    if ptt.is_empty() {
+        cfg.shortcut.trim().to_owned()
+    } else {
+        format!("{}, ou maintenir {ptt}", cfg.shortcut.trim())
+    }
+}
+
+/// Traduit les appuis et relâchements d'un raccourci en actions, en
+/// ignorant l'auto-répétition du clavier pendant un maintien.
+#[derive(Debug)]
+pub struct Binding {
+    mode: Mode,
     held: AtomicBool,
 }
 
-impl PressFilter {
-    /// Renvoie `true` pour un appui à traiter.
-    pub fn pressed(&self) -> bool {
-        !self.held.swap(true, Ordering::SeqCst)
+impl Binding {
+    pub fn new(mode: Mode) -> Self {
+        Self {
+            mode,
+            held: AtomicBool::new(false),
+        }
     }
 
-    pub fn released(&self) {
-        self.held.store(false, Ordering::SeqCst);
+    pub fn on_pressed(&self) -> Option<Action> {
+        if self.held.swap(true, Ordering::SeqCst) {
+            return None; // auto-répétition
+        }
+        Some(match self.mode {
+            Mode::Toggle => Action::Toggle,
+            Mode::PushToTalk => Action::Start,
+        })
+    }
+
+    pub fn on_released(&self) -> Option<Action> {
+        let was_held = self.held.swap(false, Ordering::SeqCst);
+        (was_held && self.mode == Mode::PushToTalk).then_some(Action::Stop)
     }
 }
 
@@ -57,44 +114,47 @@ pub use self::win::register;
 
 #[cfg(windows)]
 mod win {
+    use std::collections::HashMap;
+
     use anyhow::{anyhow, Context, Result};
     use global_hotkey::hotkey::HotKey;
     use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 
-    use super::{normalize, PressFilter};
+    use super::{normalize, Action, Binding, Mode};
 
-    /// Garde le raccourci enregistré tant qu'elle vit.
+    /// Garde les raccourcis enregistrés tant qu'elle vit.
     pub struct Registration {
         _manager: GlobalHotKeyManager,
     }
 
-    /// Enregistre `shortcut` ; `on_press` est appelé depuis la boucle de
-    /// messages à chaque appui (hors auto-répétition).
+    /// Enregistre les raccourcis ; `on_action` est appelé depuis la boucle de
+    /// messages (appui) ou un thread de `global-hotkey` (relâchement).
     pub fn register(
-        shortcut: &str,
-        on_press: impl Fn() + Send + Sync + 'static,
+        bindings: &[(String, Mode)],
+        on_action: impl Fn(Action) + Send + Sync + 'static,
     ) -> Result<Registration> {
-        let hotkey: HotKey = normalize(shortcut)?
-            .parse()
-            .map_err(|e| anyhow!("raccourci {shortcut:?} non reconnu : {e}"))?;
         let manager =
             GlobalHotKeyManager::new().context("initialisation des raccourcis globaux")?;
-        manager.register(hotkey).map_err(|e| {
-            anyhow!("le raccourci {shortcut} est indisponible (déjà utilisé par une autre application ?) : {e}")
-        })?;
-        let id = hotkey.id();
-        let filter = PressFilter::default();
+        let mut by_id = HashMap::new();
+        for (shortcut, mode) in bindings {
+            let hotkey: HotKey = normalize(shortcut)?
+                .parse()
+                .map_err(|e| anyhow!("raccourci {shortcut:?} non reconnu : {e}"))?;
+            manager.register(hotkey).map_err(|e| {
+                anyhow!("le raccourci {shortcut} est indisponible (déjà utilisé par une autre application ?) : {e}")
+            })?;
+            by_id.insert(hotkey.id(), Binding::new(*mode));
+        }
         GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
-            if event.id() != id {
+            let Some(binding) = by_id.get(&event.id()) else {
                 return;
-            }
-            match event.state() {
-                HotKeyState::Pressed => {
-                    if filter.pressed() {
-                        on_press();
-                    }
-                }
-                HotKeyState::Released => filter.released(),
+            };
+            let action = match event.state() {
+                HotKeyState::Pressed => binding.on_pressed(),
+                HotKeyState::Released => binding.on_released(),
+            };
+            if let Some(action) = action {
+                on_action(action);
             }
         }));
         Ok(Registration { _manager: manager })
@@ -104,6 +164,13 @@ mod win {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn cfg(shortcut: &str, ptt: &str) -> HotkeyConfig {
+        HotkeyConfig {
+            shortcut: shortcut.into(),
+            push_to_talk: ptt.into(),
+        }
+    }
 
     #[test]
     fn normalizes_french_shortcuts() {
@@ -120,11 +187,44 @@ mod tests {
     }
 
     #[test]
-    fn press_filter_ignores_auto_repeat() {
-        let f = PressFilter::default();
-        assert!(f.pressed());
-        assert!(!f.pressed()); // répétition pendant le maintien
-        f.released();
-        assert!(f.pressed());
+    fn toggle_ignores_auto_repeat_and_release() {
+        let b = Binding::new(Mode::Toggle);
+        assert_eq!(b.on_pressed(), Some(Action::Toggle));
+        assert_eq!(b.on_pressed(), None); // répétition pendant le maintien
+        assert_eq!(b.on_released(), None);
+        assert_eq!(b.on_pressed(), Some(Action::Toggle));
+    }
+
+    #[test]
+    fn push_to_talk_starts_on_press_and_stops_once_on_release() {
+        let b = Binding::new(Mode::PushToTalk);
+        assert_eq!(b.on_pressed(), Some(Action::Start));
+        assert_eq!(b.on_pressed(), None);
+        assert_eq!(b.on_released(), Some(Action::Stop));
+        // Relâchements en double (un par répétition) : un seul arrêt.
+        assert_eq!(b.on_released(), None);
+    }
+
+    #[test]
+    fn bindings_from_config() {
+        let both = bindings(&cfg("Ctrl+Alt+Espace", " Alt+Maj+Espace ")).unwrap();
+        assert_eq!(
+            both,
+            [
+                ("Ctrl+Alt+Espace".to_owned(), Mode::Toggle),
+                ("Alt+Maj+Espace".to_owned(), Mode::PushToTalk)
+            ]
+        );
+        assert_eq!(bindings(&cfg("Ctrl+Alt+Espace", "")).unwrap().len(), 1);
+        assert!(bindings(&cfg("Ctrl+Alt+Espace", "ctrl+alt+space")).is_err());
+    }
+
+    #[test]
+    fn describes_shortcuts() {
+        assert_eq!(
+            describe(&cfg("Ctrl+Alt+Espace", "Alt+Maj+Espace")),
+            "Ctrl+Alt+Espace, ou maintenir Alt+Maj+Espace"
+        );
+        assert_eq!(describe(&cfg("Ctrl+Alt+Espace", " ")), "Ctrl+Alt+Espace");
     }
 }

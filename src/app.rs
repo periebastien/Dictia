@@ -20,13 +20,14 @@ use tray_icon::menu::MenuEvent;
 use crate::audio::capture::Recorder;
 use crate::audio::{duration_of, flac, vad, TARGET_RATE};
 use crate::config::{self, Config, API_KEY_ENV, CONFIG_FILE};
+use crate::hotkey::{self, Action};
+use crate::inject;
 use crate::metrics::{Latencies, METRICS_FILE};
 use crate::platform::{self, WindowHandle};
 use crate::transcription::standard::StandardBackend;
 use crate::transcription::{AudioPayload, Backend, Progress};
 use crate::tray::{Tray, TrayState, MENU_OPEN_CONFIG, MENU_QUIT};
 use crate::vocab::Vocab;
-use crate::{hotkey, inject};
 
 const LOG_FILE: &str = "dictia.log";
 const LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
@@ -72,7 +73,8 @@ pub fn run() -> Result<()> {
         .context("démarrage du runtime")?;
     let (tx, rx) = mpsc::unbounded_channel();
 
-    let mut tray = Tray::new(&config.hotkey.shortcut)?;
+    let shortcuts = hotkey::describe(&config.hotkey);
+    let mut tray = Tray::new(&shortcuts)?;
     {
         let dir = dir.clone();
         let main_thread = status.main_thread;
@@ -85,9 +87,12 @@ pub fn run() -> Result<()> {
         }));
     }
 
-    let _hotkey = match hotkey::register(&config.hotkey.shortcut, move || {
-        let _ = tx.send(Command::Toggle);
-    }) {
+    let registration = hotkey::bindings(&config.hotkey).and_then(|bindings| {
+        hotkey::register(&bindings, move |action| {
+            let _ = tx.send(action);
+        })
+    });
+    let _hotkey = match registration {
         Ok(h) => h,
         Err(e) => {
             platform::show_error(&format!(
@@ -98,7 +103,7 @@ pub fn run() -> Result<()> {
             return Ok(());
         }
     };
-    log::info!("prêt : {} pour dicter", config.hotkey.shortcut);
+    log::info!("prêt : {shortcuts} pour dicter");
 
     let controller = Controller {
         backend,
@@ -115,10 +120,6 @@ pub fn run() -> Result<()> {
     log::info!("arrêt de Dictia");
     runtime.shutdown_timeout(Duration::from_millis(500));
     Ok(())
-}
-
-enum Command {
-    Toggle,
 }
 
 /// État partagé, lu par la boucle principale pour mettre à jour l'icône.
@@ -208,20 +209,24 @@ struct Controller {
 }
 
 impl Controller {
-    async fn run(self, mut rx: mpsc::UnboundedReceiver<Command>) {
+    async fn run(self, mut rx: mpsc::UnboundedReceiver<Action>) {
         let mut session: Option<Session> = None;
-        while let Some(Command::Toggle) = rx.recv().await {
-            session = match session.take() {
-                None => self.start(),
-                Some(s) => {
+        while let Some(action) = rx.recv().await {
+            session = match (action, session.take()) {
+                (Action::Toggle | Action::Start, None) => self.start(),
+                (Action::Toggle | Action::Stop, Some(s)) => {
                     self.stop(s);
                     None
                 }
+                // Déjà dans l'état demandé (ex. push-to-talk pendant une
+                // dictée en mode bascule : le relâchement l'arrêtera).
+                (Action::Start, s @ Some(_)) => s,
+                (Action::Stop, None) => None,
             };
         }
     }
 
-    /// 1er appui : mémorise la fenêtre, ouvre le micro et la connexion.
+    /// Début : mémorise la fenêtre, ouvre le micro et la connexion.
     fn start(&self) -> Option<Session> {
         let started = Instant::now();
         let target = platform::foreground_window();
@@ -250,7 +255,7 @@ impl Controller {
         }
     }
 
-    /// 2e appui : arrête le micro et lance le traitement en tâche de fond,
+    /// Fin : arrête le micro et lance le traitement en tâche de fond,
     /// pour qu'une nouvelle dictée puisse commencer aussitôt.
     fn stop(&self, session: Session) {
         let stopped = Instant::now();
