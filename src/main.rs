@@ -10,6 +10,7 @@
 
 mod audio;
 mod config;
+mod transcription;
 mod vocab;
 
 fn main() {
