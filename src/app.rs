@@ -94,7 +94,8 @@ pub fn run() -> Result<()> {
                 "{e:#}\n\nChoisissez un autre raccourci dans {} puis relancez Dictia.",
                 dir.join(CONFIG_FILE).display()
             ));
-            return Err(e);
+            log::error!("{e:#}");
+            return Ok(());
         }
     };
     log::info!("prêt : {} pour dicter", config.hotkey.shortcut);
