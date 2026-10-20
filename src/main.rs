@@ -9,6 +9,7 @@
 #![allow(dead_code)]
 
 mod config;
+mod vocab;
 
 fn main() {
     eprintln!("Dictia : initialisation en cours.");
