@@ -236,7 +236,11 @@ mod tests {
 
     #[test]
     fn punctuation_rules_and_special_characters() {
-        let v = vocab(vec![rule("...", "…"), rule("à la ligne", "\n"), rule("dollar", "$1")]);
+        let v = vocab(vec![
+            rule("...", "…"),
+            rule("à la ligne", "\n"),
+            rule("dollar", "$1"),
+        ]);
         assert_eq!(v.apply("Fin... à la ligne"), "Fin… \n");
         // `$1` est inséré tel quel, sans interprétation.
         assert_eq!(v.apply("un dollar"), "un $1");

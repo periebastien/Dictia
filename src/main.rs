@@ -8,6 +8,7 @@
 // Modules câblés progressivement ; retiré quand l'application est assemblée.
 #![allow(dead_code)]
 
+mod audio;
 mod config;
 mod vocab;
 
