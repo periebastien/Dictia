@@ -11,6 +11,8 @@ pub enum Keystroke {
     Unit(u16),
     Enter,
     Tab,
+    /// Efface le caractère précédent (correction de la frappe en direct).
+    Backspace,
 }
 
 /// Texte final à taper : sans blancs superflus, avec l'espace finale
@@ -44,6 +46,47 @@ pub fn plan(text: &str) -> Vec<Keystroke> {
         }
     }
     keys
+}
+
+/// Frappes qui effacent `erase` caractères puis tapent `text`.
+pub fn correction(erase: usize, text: &str) -> Vec<Keystroke> {
+    let mut keys = vec![Keystroke::Backspace; erase];
+    keys.extend(plan(text));
+    keys
+}
+
+/// Frappe en direct possible maintenant : la fenêtre d'origine a le focus
+/// et aucune touche ne transformerait les lettres en raccourcis.
+#[cfg(windows)]
+pub fn can_type_live(target: Option<crate::platform::WindowHandle>) -> bool {
+    use crate::platform;
+    !platform::shortcut_modifiers_down()
+        && target.is_none_or(|t| platform::foreground_window() == Some(t))
+}
+
+/// Applique une correction de la frappe en direct. `last` : correction
+/// finale, qui attend le relâchement des touches et rend le focus.
+#[cfg(windows)]
+pub fn apply_correction(
+    target: Option<crate::platform::WindowHandle>,
+    erase: usize,
+    text: &str,
+    last: bool,
+) -> anyhow::Result<()> {
+    use std::time::Duration;
+
+    use crate::platform;
+
+    if erase == 0 && text.is_empty() {
+        return Ok(());
+    }
+    if last {
+        platform::wait_modifiers_released(Duration::from_millis(1500));
+        if let Some(target) = target {
+            platform::focus_window(target);
+        }
+    }
+    platform::send_keystrokes(&correction(erase, text))
 }
 
 /// Rend le focus à `target` puis tape `text`.
@@ -97,6 +140,16 @@ mod tests {
                 Unit(b'e' as u16)
             ]
         );
+    }
+
+    #[test]
+    fn correction_erases_then_types() {
+        use Keystroke::*;
+        assert_eq!(
+            correction(2, "a\n"),
+            [Backspace, Backspace, Unit(b'a' as u16), Enter]
+        );
+        assert!(correction(0, "").is_empty());
     }
 
     #[test]

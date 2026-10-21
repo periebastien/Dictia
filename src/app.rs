@@ -27,6 +27,7 @@ use crate::metrics::METRICS_FILE;
 use crate::overlay::{self, Animation};
 use crate::platform::{self, HostWindow, OverlayWindow, UiRequest};
 use crate::settings::{self, Change, VocabEdit};
+use crate::stats::{self, EngineStats};
 use crate::transcription::standard::StandardBackend;
 use crate::transcription::Backend;
 use crate::tray::{Tray, TrayState, MENU_OPEN_CONFIG, MENU_OPEN_UI, MENU_QUIT};
@@ -215,6 +216,11 @@ impl MainLoop {
                     self.history.insert(0, entry.clone());
                     self.history.truncate(MAX_ENTRIES);
                     self.send(&Message::HistoryAdd { entry });
+                    if self.ui.is_some() {
+                        self.send(&Message::Stats {
+                            stats: self.stats(),
+                        });
+                    }
                 }
                 Event::NeedApiKey => {
                     self.open_ui(Some(Tab::Reglages));
@@ -265,6 +271,13 @@ impl MainLoop {
         )
     }
 
+    /// Statistiques de latence à partir de `latences.csv`.
+    fn stats(&self) -> Vec<EngineStats> {
+        fs::read_to_string(self.dir.join(METRICS_FILE))
+            .map(|csv| stats::compute(&csv))
+            .unwrap_or_default()
+    }
+
     fn vocab_view(&self) -> VocabEdit {
         settings::vocab_view(&self.shared.read().expect("réglages").vocab_file)
     }
@@ -277,6 +290,7 @@ impl MainLoop {
                     settings: self.settings_view(),
                     vocab: self.vocab_view(),
                     history: self.history.clone(),
+                    stats: self.stats(),
                     tab: self.pending_tab.take(),
                 };
                 self.send(&message);

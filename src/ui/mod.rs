@@ -9,9 +9,11 @@ pub mod window;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::Config;
+use crate::config::{Config, ENGINE_REALTIME, ENGINE_STANDARD};
 use crate::history::Entry;
 use crate::settings::{mask_api_key, Change, VocabEdit, ACCENTS, MODELS, RELEASE_TAILS};
+use crate::stats::EngineStats;
+use crate::transcription::realtime;
 use crate::tray::TrayState;
 
 /// Page de l'interface, embarquée dans l'exécutable.
@@ -78,12 +80,16 @@ pub struct AccentView {
 pub struct SettingsView {
     pub api_key_set: bool,
     pub api_key_hint: String,
+    pub engine: String,
     pub model: String,
     pub models: Vec<&'static str>,
+    pub realtime_model: String,
+    pub realtime_models: Vec<&'static str>,
     pub shortcut: String,
     pub push_to_talk: String,
     pub indicator: bool,
     pub trailing_space: bool,
+    pub live_typing: bool,
     pub release_tail_ms: u32,
     pub release_tails: Vec<u32>,
     pub start_with_windows: bool,
@@ -98,12 +104,21 @@ impl SettingsView {
         Self {
             api_key_set: api_key.is_some(),
             api_key_hint: api_key.map(mask_api_key).unwrap_or_default(),
+            engine: if config.api.is_realtime() {
+                ENGINE_REALTIME
+            } else {
+                ENGINE_STANDARD
+            }
+            .to_owned(),
             model: config.api.model.clone(),
             models: MODELS.to_vec(),
+            realtime_model: config.api.realtime_model.clone(),
+            realtime_models: realtime::MODELS.to_vec(),
             shortcut: config.hotkey.shortcut.clone(),
             push_to_talk: config.hotkey.push_to_talk.clone(),
             indicator: config.indicator.enabled,
             trailing_space: config.inject.trailing_space,
+            live_typing: config.inject.live_typing,
             release_tail_ms: config.audio.release_tail_ms,
             release_tails: RELEASE_TAILS.to_vec(),
             start_with_windows,
@@ -136,7 +151,11 @@ pub enum Message {
         settings: SettingsView,
         vocab: VocabEdit,
         history: Vec<Entry>,
+        stats: Vec<EngineStats>,
         tab: Option<Tab>,
+    },
+    Stats {
+        stats: Vec<EngineStats>,
     },
     Settings {
         settings: SettingsView,
@@ -235,6 +254,8 @@ mod tests {
         assert_eq!(view.api_key_hint, "sk-…1234");
         assert_eq!(view.accents.len(), 4);
         assert_eq!(view.release_tail_ms, 300);
+        assert_eq!(view.engine, "standard");
+        assert_eq!(view.realtime_model, "gpt-live-transcribe");
         assert!(!SettingsView::new(&Config::default(), None, false).api_key_set);
     }
 
@@ -264,6 +285,7 @@ mod tests {
             "case 'history_add'",
             "case 'toast'",
             "case 'tab'",
+            "case 'stats'",
             "cmd: 'ready'",
             "cmd: 'drag'",
             "cmd: 'minimize'",

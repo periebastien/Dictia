@@ -7,8 +7,9 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use toml_edit::{value, Array, ArrayOfTables, DocumentMut, Item, Table};
 
-use crate::config::{Config, HotkeyConfig};
+use crate::config::{Config, HotkeyConfig, ENGINE_REALTIME, ENGINE_STANDARD};
 use crate::hotkey;
+use crate::transcription::realtime;
 use crate::vocab::VocabFile;
 
 /// Modèles proposés dans l'interface.
@@ -24,10 +25,13 @@ pub const ACCENTS: [&str; 4] = ["#7C83FF", "#38BDF8", "#34D399", "#F59E0B"];
 pub enum Change {
     ApiKey { value: String },
     Model { value: String },
+    Engine { value: String },
+    RealtimeModel { value: String },
     Shortcut { value: String },
     PushToTalk { value: String },
     Indicator { value: bool },
     TrailingSpace { value: bool },
+    LiveTyping { value: bool },
     ReleaseTail { value: u32 },
     Accent { value: String },
 }
@@ -82,6 +86,18 @@ pub fn apply_config_change(text: &str, current: &Config, change: &Change) -> Res
             }
             table(&mut doc, "api")["model"] = value(v.as_str());
         }
+        Change::Engine { value: v } => {
+            if v != ENGINE_STANDARD && v != ENGINE_REALTIME {
+                bail!("moteur inconnu : {v}");
+            }
+            table(&mut doc, "api")["engine"] = value(v.as_str());
+        }
+        Change::RealtimeModel { value: v } => {
+            if !realtime::MODELS.contains(&v.as_str()) {
+                bail!("modèle realtime inconnu : {v}");
+            }
+            table(&mut doc, "api")["realtime_model"] = value(v.as_str());
+        }
         Change::Shortcut { value: v } | Change::PushToTalk { value: v } => {
             let mut hk: HotkeyConfig = current.hotkey.clone();
             let key = if matches!(change, Change::Shortcut { .. }) {
@@ -101,6 +117,7 @@ pub fn apply_config_change(text: &str, current: &Config, change: &Change) -> Res
         Change::TrailingSpace { value: v } => {
             table(&mut doc, "inject")["trailing_space"] = value(*v)
         }
+        Change::LiveTyping { value: v } => table(&mut doc, "inject")["live_typing"] = value(*v),
         Change::ReleaseTail { value: v } => {
             if *v > 2_000 {
                 bail!("prolongement trop long : {v} ms (2 000 ms au plus)");
@@ -257,6 +274,20 @@ mod tests {
                 .release_tail_ms,
             500
         );
+        let cfg = apply(Change::Engine {
+            value: "realtime".into(),
+        })
+        .unwrap();
+        assert!(cfg.api.is_realtime());
+        assert_eq!(
+            apply(Change::RealtimeModel {
+                value: "gpt-realtime-whisper".into()
+            })
+            .unwrap()
+            .api
+            .realtime_model,
+            "gpt-realtime-whisper"
+        );
         let cfg = apply(Change::PushToTalk {
             value: "Ctrl+Maj+P".into(),
         })
@@ -282,6 +313,14 @@ mod tests {
         })
         .is_err());
         assert!(apply(Change::ReleaseTail { value: 5_000 }).is_err());
+        assert!(apply(Change::Engine {
+            value: "turbo".into()
+        })
+        .is_err());
+        assert!(apply(Change::RealtimeModel {
+            value: "gpt-4o-transcribe-diarize".into()
+        })
+        .is_err());
         assert!(apply(Change::Shortcut { value: "".into() }).is_err());
         // Identique au raccourci push-to-talk par défaut.
         assert!(apply(Change::Shortcut {

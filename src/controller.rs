@@ -1,5 +1,5 @@
-//! Contrôleur de dictée : capture → VAD → FLAC → transcription →
-//! remplacements → frappe, plus l'état partagé avec la boucle principale.
+//! Contrôleur de dictée : capture → transcription (en direct ou à la fin)
+//! → remplacements → frappe, plus l'état partagé avec la boucle principale.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
@@ -16,8 +16,10 @@ use crate::dictation::{self, Effect, Phase};
 use crate::history::{self, Entry};
 use crate::hotkey::Action;
 use crate::inject;
+use crate::live_typing;
 use crate::metrics::Latencies;
 use crate::platform::{self, WindowHandle};
+use crate::transcription::realtime::{self, RealtimeConfig};
 use crate::transcription::{AudioPayload, Backend, Progress};
 use crate::tray::TrayState;
 use crate::vocab::{Vocab, VocabFile};
@@ -117,6 +119,7 @@ struct Session {
     target: Option<WindowHandle>,
     started: Instant,
     mode: &'static str,
+    live: Option<Live>,
 }
 
 /// Dictée enregistrée, à transcrire.
@@ -126,6 +129,120 @@ struct Capture {
     recording: Duration,
     stopped: Instant,
     mode: &'static str,
+    live: Option<Live>,
+}
+
+/// Transcription en direct qui accompagne une dictée.
+struct Live {
+    task: tokio::task::JoinHandle<Result<String>>,
+    marks: Arc<std::sync::Mutex<LiveMarks>>,
+    typer: Option<Typer>,
+}
+
+/// Instants des jalons de la session en direct, pour les latences.
+#[derive(Default)]
+struct LiveMarks {
+    commit: Option<Instant>,
+    first_delta: Option<Instant>,
+}
+
+impl Live {
+    fn spawn(
+        config: RealtimeConfig,
+        audio: mpsc::UnboundedReceiver<Vec<i16>>,
+        typer: Option<Typer>,
+    ) -> Self {
+        let marks = Arc::new(std::sync::Mutex::new(LiveMarks::default()));
+        let recorder = Arc::clone(&marks);
+        let to_typer = typer.as_ref().map(|t| t.tx.clone());
+        let task = tokio::spawn(realtime::run_session(config, audio, move |p| {
+            if let Ok(mut m) = recorder.lock() {
+                match p {
+                    Progress::ResponseStarted => m.commit = Some(Instant::now()),
+                    Progress::Delta(_) => {
+                        m.first_delta.get_or_insert_with(Instant::now);
+                    }
+                }
+            }
+            if let (Progress::Delta(d), Some(tx)) = (p, &to_typer) {
+                let _ = tx.send(TyperMsg::Delta(d.to_owned()));
+            }
+        }));
+        Self { task, marks, typer }
+    }
+}
+
+/// Ordre transmis à la frappe en direct.
+enum TyperMsg {
+    /// Fragment de transcription reçu pendant la dictée.
+    Delta(String),
+    /// Texte final (remplacements appliqués) : dernière correction.
+    Finish(String),
+    /// Rien à garder : efface ce qui a été tapé.
+    Erase,
+}
+
+/// Frappe au fil de la transcription en direct (moteur realtime).
+struct Typer {
+    tx: mpsc::UnboundedSender<TyperMsg>,
+    task: tokio::task::JoinHandle<Result<()>>,
+}
+
+impl Typer {
+    fn spawn(target: Option<WindowHandle>, vocab: Arc<Vocab>, lock: Arc<Mutex<()>>) -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let task = tokio::spawn(run_typer(target, vocab, lock, rx));
+        Self { tx, task }
+    }
+
+    /// Envoie la dernière consigne et attend que la frappe soit terminée.
+    async fn finish(self, last: TyperMsg) -> Result<()> {
+        let _ = self.tx.send(last);
+        self.task.await?
+    }
+}
+
+async fn run_typer(
+    target: Option<WindowHandle>,
+    vocab: Arc<Vocab>,
+    lock: Arc<Mutex<()>>,
+    mut rx: mpsc::UnboundedReceiver<TyperMsg>,
+) -> Result<()> {
+    let mut typed = String::new();
+    let mut raw = String::new();
+    // Pris à la première frappe seulement : une dictée précédente encore en
+    // cours de traitement tape son texte avant celui-ci.
+    let mut guard = None;
+    while let Some(msg) = rx.recv().await {
+        let (wanted, last) = match msg {
+            TyperMsg::Delta(d) => {
+                raw.push_str(&d);
+                let applied = vocab.apply(&raw);
+                (live_typing::stable_prefix(&applied).to_owned(), false)
+            }
+            TyperMsg::Finish(text) => (text, true),
+            TyperMsg::Erase => (String::new(), true),
+        };
+        if !last && !inject::can_type_live(target) {
+            continue;
+        }
+        let (erase, insert) = live_typing::diff(&typed, &wanted);
+        if erase > 0 || !insert.is_empty() {
+            if guard.is_none() {
+                guard = Some(lock.lock().await);
+            }
+            let insert = insert.to_owned();
+            tokio::task::spawn_blocking(move || {
+                inject::apply_correction(target, erase, &insert, last)
+            })
+            .await??;
+            typed = wanted;
+        }
+        if last {
+            break;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -187,37 +304,81 @@ impl Controller {
         Duration::from_millis(u64::from(ms))
     }
 
-    fn backend(&self) -> Option<Arc<dyn Backend>> {
-        self.shared.read().ok()?.backend.clone()
+    /// Moteur standard (toujours prêt, sert aussi de repli) et, si le moteur
+    /// realtime est choisi, la configuration de sa session.
+    fn engines(&self) -> Option<(Arc<dyn Backend>, Option<RealtimeConfig>)> {
+        let shared = self.shared.read().ok()?;
+        let backend = shared.backend.clone()?;
+        let api = &shared.config.api;
+        let realtime = api
+            .is_realtime()
+            .then(|| shared.api_key.clone())
+            .flatten()
+            .map(|api_key| RealtimeConfig {
+                url: realtime::endpoint(&api.base_url),
+                api_key,
+                model: api.realtime_model.clone(),
+                language: api.language.clone(),
+                prompt: shared.vocab.prompt().to_owned(),
+                keywords: shared.vocab_file.terms.clone(),
+                timeout: Duration::from_secs(api.timeout_secs.max(1)),
+            });
+        Some((backend, realtime))
     }
 
-    /// Début : mémorise la fenêtre, ouvre le micro et la connexion.
+    /// Début : mémorise la fenêtre, ouvre le micro et la connexion (session
+    /// en direct ou préchauffage du moteur standard).
     fn start(&self, mode: &'static str) -> Option<Session> {
         let started = Instant::now();
-        let Some(backend) = self.backend() else {
+        let Some((backend, realtime)) = self.engines() else {
             let _ = self.events.send(Event::NeedApiKey);
             self.status.notify();
             return None;
         };
         let target = platform::foreground_window();
-        tokio::spawn(async move { backend.warm_up().await });
+        let (live, live_audio) = match realtime {
+            Some(config) => {
+                let (tx, rx) = mpsc::unbounded_channel();
+                let typer = self.shared.read().ok().and_then(|s| {
+                    s.config.inject.live_typing.then(|| {
+                        Typer::spawn(target, Arc::clone(&s.vocab), Arc::clone(&self.inject_lock))
+                    })
+                });
+                (Some(Live::spawn(config, rx, typer)), Some(tx))
+            }
+            None => {
+                tokio::spawn(async move { backend.warm_up().await });
+                (None, None)
+            }
+        };
 
         let status = Arc::clone(&self.status);
-        match Recorder::start(Arc::clone(&self.status.mic_level), move |e| {
+        match Recorder::start(Arc::clone(&self.status.mic_level), live_audio, move |e| {
             status.recording.store(false, Ordering::SeqCst);
             status.fail("micro", &e);
         }) {
             Ok(recorder) => {
                 self.status.set_recording(true);
-                log::info!("enregistrement démarré ({mode})");
+                log::info!(
+                    "enregistrement démarré ({mode}, moteur {})",
+                    if live.is_some() {
+                        "realtime"
+                    } else {
+                        "standard"
+                    }
+                );
                 Some(Session {
                     recorder,
                     target,
                     started,
                     mode,
+                    live,
                 })
             }
             Err(e) => {
+                if let Some(live) = live {
+                    live.task.abort();
+                }
                 self.status.fail("micro", &format!("{e:#}"));
                 None
             }
@@ -235,6 +396,9 @@ impl Controller {
             Err(e) => {
                 // Déjà signalé par le rappel d'erreur du micro.
                 log::warn!("aucun audio : {e:#}");
+                if let Some(live) = session.live {
+                    live.task.abort();
+                }
                 return;
             }
         };
@@ -249,6 +413,7 @@ impl Controller {
                 recording,
                 stopped,
                 mode: session.mode,
+                live: session.live,
             };
             if let Err(e) = this.process(capture).await {
                 this.status.fail("dictée", &format!("{e:#}"));
@@ -273,80 +438,107 @@ impl Controller {
 
         let stopped = capture.stopped;
         let mut lat = Latencies {
-            backend: backend.name(),
+            backend: if capture.live.is_some() {
+                "realtime"
+            } else {
+                backend.name()
+            },
             recording: capture.recording,
             ..Default::default()
         };
 
-        // Retrait des silences + FLAC, hors du runtime asynchrone.
+        // Détection de parole locale : évite d'injecter une « transcription »
+        // de silence, quel que soit le moteur.
         let audio_cfg = config.audio.clone();
         let samples = capture.samples;
-        let encoding = Instant::now();
-        let encoded =
-            tokio::task::spawn_blocking(move || -> Result<Option<(Vec<u8>, Duration)>> {
-                let Some(speech) = vad::trim_silence(&samples, TARGET_RATE, &audio_cfg) else {
-                    return Ok(None);
-                };
-                let bytes = flac::encode_mono(speech, TARGET_RATE)?;
-                Ok(Some((bytes, duration_of(speech.len(), TARGET_RATE))))
-            })
-            .await??;
-        lat.encode = encoding.elapsed();
-        let Some((flac_bytes, speech)) = encoded else {
+        let (samples, speech) = tokio::task::spawn_blocking(move || {
+            let range = vad::speech_bounds(&samples, TARGET_RATE, &audio_cfg);
+            (samples, range)
+        })
+        .await?;
+        let mut live = capture.live;
+        let typer = live.as_mut().and_then(|l| l.typer.take());
+        let Some(speech) = speech else {
+            if let Some(live) = live {
+                live.task.abort();
+            }
+            if let Some(typer) = typer {
+                typer.finish(TyperMsg::Erase).await?;
+            }
             log::info!("aucune parole détectée, rien à transcrire");
             return Ok(());
         };
-        lat.speech = speech;
-        lat.flac_bytes = flac_bytes.len();
+        lat.speech = duration_of(speech.len(), TARGET_RATE);
 
-        let sent = Instant::now();
-        let (mut upload, mut first_token) = (None, None);
-        let text = {
-            let mut progress = |p: Progress<'_>| match p {
-                Progress::ResponseStarted => {
-                    upload.get_or_insert_with(|| sent.elapsed());
+        let text = match live {
+            Some(live) => match finish_live(live, stopped, &mut lat).await {
+                Ok(text) => text,
+                Err(e) => {
+                    log::warn!("transcription en direct indisponible, repli sur le moteur standard : {e:#}");
+                    lat.backend = "realtime>standard";
+                    transcribe_file(
+                        &*backend,
+                        &vocab,
+                        samples[speech].to_vec(),
+                        stopped,
+                        &mut lat,
+                    )
+                    .await?
                 }
-                Progress::Delta(_) => {
-                    first_token.get_or_insert_with(|| stopped.elapsed());
-                }
-            };
-            backend
-                .transcribe(
-                    AudioPayload::flac(flac_bytes),
-                    vocab.prompt(),
-                    &mut progress,
+            },
+            None => {
+                transcribe_file(
+                    &*backend,
+                    &vocab,
+                    samples[speech].to_vec(),
+                    stopped,
+                    &mut lat,
                 )
                 .await?
+            }
         };
-        lat.upload = upload;
-        lat.first_token = first_token;
         lat.done = stopped.elapsed();
 
-        if vocab.is_prompt_echo(&text) {
+        let text = if vocab.is_prompt_echo(&text) {
             log::info!("transcription ignorée : le modèle a recopié le prompt (pas de parole ?)");
-            return Ok(());
-        }
-        let text = inject::prepare_text(&vocab.apply(&text), config.inject.trailing_space);
+            String::new()
+        } else {
+            inject::prepare_text(&vocab.apply(&text), config.inject.trailing_space)
+        };
         lat.chars = text.chars().count();
+
+        let target = capture.target;
+        let typing = Instant::now();
+        match typer {
+            // Frappe en direct : il ne reste qu'à corriger ou compléter.
+            Some(typer) => {
+                let last = if text.is_empty() {
+                    TyperMsg::Erase
+                } else {
+                    TyperMsg::Finish(text.clone())
+                };
+                typer.finish(last).await?;
+            }
+            None if !text.is_empty() => {
+                let _guard = self.inject_lock.lock().await;
+                let typed = text.clone();
+                tokio::task::spawn_blocking(move || inject::type_into(target, &typed)).await??;
+            }
+            None => {}
+        }
         if text.is_empty() {
             log::info!("transcription vide");
             return Ok(());
         }
-
-        let _guard = self.inject_lock.lock().await;
-        let typing = Instant::now();
-        let target = capture.target;
-        let typed = text.clone();
-        let app = tokio::task::spawn_blocking(move || -> Result<String> {
-            inject::type_into(target, &typed)?;
-            Ok(target
-                .and_then(platform::window_exe)
-                .map(|exe| history::friendly_app_name(&exe))
-                .unwrap_or_default())
-        })
-        .await??;
         lat.inject = typing.elapsed();
         lat.total = stopped.elapsed();
+        let app = tokio::task::spawn_blocking(move || {
+            target
+                .and_then(platform::window_exe)
+                .map(|exe| history::friendly_app_name(&exe))
+                .unwrap_or_default()
+        })
+        .await?;
 
         log::info!("{}", lat.summary());
         if let Err(e) = lat.append_csv(&self.metrics_path) {
@@ -372,6 +564,56 @@ impl Controller {
         self.status.notify();
         Ok(())
     }
+}
+
+/// Attend le texte de la session en direct (l'audio est déjà parti).
+async fn finish_live(live: Live, stopped: Instant, lat: &mut Latencies) -> Result<String> {
+    let text = live.task.await??;
+    if let Ok(marks) = live.marks.lock() {
+        let since_stop = |t: Instant| t.saturating_duration_since(stopped);
+        lat.upload = marks.commit.map(since_stop);
+        // Un fragment reçu avant l'arrêt compte pour 0 ms.
+        lat.first_token = marks.first_delta.map(since_stop);
+    }
+    Ok(text)
+}
+
+/// Moteur standard : FLAC de la parole puis requête de transcription.
+async fn transcribe_file(
+    backend: &dyn Backend,
+    vocab: &Vocab,
+    speech: Vec<f32>,
+    stopped: Instant,
+    lat: &mut Latencies,
+) -> Result<String> {
+    let encoding = Instant::now();
+    let flac_bytes =
+        tokio::task::spawn_blocking(move || flac::encode_mono(&speech, TARGET_RATE)).await??;
+    lat.encode = encoding.elapsed();
+    lat.flac_bytes = flac_bytes.len();
+
+    let sent = Instant::now();
+    let (mut upload, mut first_token) = (None, None);
+    let text = {
+        let mut progress = |p: Progress<'_>| match p {
+            Progress::ResponseStarted => {
+                upload.get_or_insert_with(|| sent.elapsed());
+            }
+            Progress::Delta(_) => {
+                first_token.get_or_insert_with(|| stopped.elapsed());
+            }
+        };
+        backend
+            .transcribe(
+                AudioPayload::flac(flac_bytes),
+                vocab.prompt(),
+                &mut progress,
+            )
+            .await?
+    };
+    lat.upload = upload;
+    lat.first_token = first_token;
+    Ok(text)
 }
 
 /// Attend `deadline`, ou indéfiniment s'il n'y en a pas.
