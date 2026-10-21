@@ -100,6 +100,8 @@ silence_threshold_db = -50.0          # seuil de silence (dBFS)
 padding_ms = 150                      # marge gardée autour de la parole
 min_speech_ms = 200                   # en dessous : rien n'est envoyé
 release_tail_ms = 300                 # écoute prolongée après relâchement (0 = non)
+device = ""                           # nom du micro ; vide = micro de Windows
+keep_mic_open = false                 # micro gardé ouvert entre les dictées
 
 [inject]
 trailing_space = true                 # espace après le texte tapé
@@ -221,7 +223,10 @@ fournisseur, le modèle et l'attente des touches.
   texte.
 - **Raccourcis** : cliquez sur un raccourci et tapez la nouvelle combinaison ;
   le mode « maintenir pour parler » peut être désactivé.
-- **Réglages** : fournisseur, modèle, langue (ou *Automatique*), clé API, animation, espace après le texte, lancement
+- **Réglages** : fournisseur, modèle, langue (ou *Automatique*), clé API,
+  micro et *Laisser le micro ouvert* (démarrage instantané, utile avec un
+  casque Bluetooth ; le son est ignoré hors des dictées, mais Windows indique
+  en permanence que le micro est utilisé), animation, espace après le texte, lancement
   au démarrage, couleur d'accent.
 
 Fermer la fenêtre la libère entièrement : Dictia continue de tourner dans la
@@ -235,4 +240,6 @@ l'icône devient grise et le détail est écrit dans `dictia.log`.
 - Windows interdit d'injecter des frappes dans une fenêtre lancée en
   administrateur depuis un programme qui ne l'est pas : lancez Dictia en
   administrateur si nécessaire.
-- Le micro utilisé est le périphérique d'entrée par défaut de Windows.
+- Avec « Laisser le micro ouvert » et le micro de Windows, un changement de
+  micro par défaut dans Windows n'est pris en compte qu'après une coupure du
+  micro ou un changement de réglage.

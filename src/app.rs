@@ -18,6 +18,7 @@ use tokio::sync::{mpsc, Mutex};
 use tray_icon::menu::MenuEvent;
 use tray_icon::{MouseButton, MouseButtonState, TrayIconEvent};
 
+use crate::audio;
 use crate::config::{self, Config, CONFIG_FILE};
 use crate::controller::{Controller, Event, Shared, SharedRef, Status};
 use crate::history::{self, Entry, HISTORY_FILE, MAX_ENTRIES};
@@ -136,7 +137,10 @@ pub fn run() -> Result<()> {
         inject_lock: Arc::new(Mutex::new(())),
         metrics_path: dir.join(METRICS_FILE),
         history_path: dir.join(HISTORY_FILE),
+        kept_mic: Arc::default(),
     };
+    controller.sync_microphone();
+    let mic_control = controller.clone();
     runtime.spawn(controller.run(actions_rx));
 
     let mut app = MainLoop {
@@ -153,6 +157,8 @@ pub fn run() -> Result<()> {
         events_rx,
         shown_status: None,
         pending_tab: None,
+        mic_control,
+        microphones: Vec::new(),
     };
     if let Some(tab) = startup_tab {
         app.open_ui(Some(tab));
@@ -199,6 +205,10 @@ struct MainLoop {
     shown_status: Option<TrayState>,
     /// Onglet à afficher quand la page sera prête.
     pending_tab: Option<Tab>,
+    /// Ouvre ou ferme le micro gardé ouvert quand les réglages changent.
+    mic_control: Controller,
+    /// Micros branchés (relus à chaque ouverture de la fenêtre).
+    microphones: Vec<String>,
 }
 
 impl MainLoop {
@@ -279,6 +289,7 @@ impl MainLoop {
             &shared.config,
             config::process_env,
             platform::run_at_startup(),
+            &self.microphones,
         )
     }
 
@@ -296,6 +307,7 @@ impl MainLoop {
     fn handle(&mut self, command: Command) {
         match command {
             Command::Ready => {
+                self.microphones = audio::capture::input_devices();
                 let message = Message::Snapshot {
                     status: ui::status_name(self.status.get()),
                     settings: self.settings_view(),
@@ -403,6 +415,10 @@ impl MainLoop {
         if let Change::Indicator { value } = change {
             self.indicator.set_enabled(*value);
         }
+        let mic_changed = matches!(
+            change,
+            Change::KeepMicOpen { .. } | Change::Microphone { .. }
+        );
         let mut shared = self.shared.write().expect("réglages");
         if matches!(
             change,
@@ -417,6 +433,10 @@ impl MainLoop {
             shared.api_key = api_key;
         }
         shared.config = config;
+        drop(shared);
+        if mic_changed {
+            self.mic_control.sync_microphone();
+        }
         Ok(())
     }
 

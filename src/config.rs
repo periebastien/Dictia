@@ -91,6 +91,13 @@ min_speech_ms = 200
 # « Maintenir pour parler » : l'écoute continue ce temps (ms) après le
 # relâchement, pour ne pas couper la fin d'une phrase. 0 = arrêt immédiat.
 release_tail_ms = 300
+# Micro à utiliser (nom exact, voir la fenêtre Dictia → Réglages).
+# Vide : micro par défaut de Windows.
+device = ""
+# Garde le micro ouvert entre les dictées : l'enregistrement démarre sans
+# délai (utile avec un casque Bluetooth). Rien n'est gardé ni envoyé hors des
+# dictées, mais Windows affiche en permanence « micro en cours d'utilisation ».
+keep_mic_open = false
 
 [inject]
 # Ajoute une espace après le texte tapé, pour enchaîner les dictées.
@@ -235,6 +242,10 @@ pub struct AudioConfig {
     pub padding_ms: u32,
     pub min_speech_ms: u32,
     pub release_tail_ms: u32,
+    /// Nom du micro ; vide : micro par défaut de Windows.
+    pub device: String,
+    /// Garde le micro ouvert entre les dictées.
+    pub keep_mic_open: bool,
 }
 
 impl Default for AudioConfig {
@@ -244,6 +255,8 @@ impl Default for AudioConfig {
             padding_ms: 150,
             min_speech_ms: 200,
             release_tail_ms: 300,
+            device: String::new(),
+            keep_mic_open: false,
         }
     }
 }

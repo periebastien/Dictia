@@ -210,6 +210,10 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       <div class="list">
         <div class="set"><div class="lbl"><span>Animation près du curseur</span><span>Écoute en rouge, transcription en bleu</span></div>
           <button class="toggle" id="t-indicator" aria-label="Animation près du curseur" aria-pressed="false"><span></span></button></div>
+        <div class="set"><div class="lbl"><label for="mic">Micro</label></div>
+          <select id="mic" class="field" style="max-width:220px"></select></div>
+        <div class="set"><div class="lbl"><span>Laisser le micro ouvert</span><span>Démarrage instantané ; rien n'est gardé hors des dictées</span></div>
+          <button class="toggle" id="t-mic-open" aria-label="Laisser le micro ouvert" aria-pressed="false"><span></span></button></div>
         <div class="set" id="row-live"><div class="lbl"><span>Écrire pendant la dictée</span><span>Realtime : mot par mot, quand Ctrl, Alt et Win sont relâchés</span></div>
           <button class="toggle" id="t-live" aria-label="Écrire pendant la dictée" aria-pressed="false"><span></span></button></div>
         <div class="set"><div class="lbl"><label for="tail">Prolonger après relâchement</label><span>Ne coupe pas la fin des phrases</span></div>
@@ -471,6 +475,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   bindToggle('t-indicator', (on) => ({ cmd: 'change', change: { kind: 'indicator', value: on } }));
   bindToggle('t-space', (on) => ({ cmd: 'change', change: { kind: 'trailing_space', value: on } }));
   bindToggle('t-live', (on) => ({ cmd: 'change', change: { kind: 'live_typing', value: on } }));
+  bindToggle('t-mic-open', (on) => ({ cmd: 'change', change: { kind: 'keep_mic_open', value: on } }));
   bindToggle('t-startup', (on) => ({ cmd: 'startup', value: on }));
   const active = () => state.settings.providers.find((p) => p.id === state.settings.provider);
   const realtimeOn = () => active().realtime && state.settings.engine === 'realtime';
@@ -506,6 +511,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     send({ cmd: 'change', change: { kind: 'engine', value: b.dataset.engine } });
   });
   $('language').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'language', value: e.target.value } }));
+  $('mic').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'microphone', value: e.target.value } }));
   $('tail').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'release_tail', value: Number(e.target.value) } }));
   $('open-folder').addEventListener('click', () => send({ cmd: 'open_folder' }));
 
@@ -526,6 +532,10 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     renderKeys();
     $('language').replaceChildren(...s.languages.map((l) => el('option', { value: l.code, text: l.name })));
     $('language').value = s.language;
+    $('mic').replaceChildren(el('option', { value: '', text: 'Micro de Windows' }),
+      ...s.microphones.map((m) => el('option', { value: m, text: m })));
+    $('mic').value = s.microphone;
+    setToggle('t-mic-open', s.keep_mic_open);
     $('tail').replaceChildren(...s.release_tails.map((ms) => el('option', { value: String(ms), text: ms ? ms + ' ms' : 'Non' })));
     $('tail').value = String(s.release_tail_ms);
     const missing = p.needs_key && !p.api_key_set;
