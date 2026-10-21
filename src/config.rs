@@ -12,6 +12,8 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 pub const CONFIG_FILE: &str = "config.toml";
+pub const ENGINE_STANDARD: &str = "standard";
+pub const ENGINE_REALTIME: &str = "realtime";
 pub const API_KEY_ENV: &str = "OPENAI_API_KEY";
 /// Permet de pointer vers un autre dossier (tests, profils multiples).
 const DIR_ENV: &str = "DICTIA_CONFIG_DIR";
@@ -28,8 +30,17 @@ pub const DEFAULT_CONFIG: &str = r##"# Configuration de Dictia
 api_key = ""
 # URL de base de l'API (compatible OpenAI).
 base_url = "https://api.openai.com/v1"
-# Modèle de transcription.
+# Moteur de transcription :
+#   "standard" : l'audio est envoyé à la fin de la dictée (éprouvé) ;
+#   "realtime" : l'audio est envoyé pendant la dictée, le texte arrive
+#                presque aussitôt au relâchement (repli automatique sur
+#                "standard" en cas d'échec).
+engine = "standard"
+# Modèle du moteur standard.
 model = "gpt-4o-transcribe"
+# Modèle du moteur realtime : gpt-live-transcribe, gpt-realtime-whisper,
+# gpt-4o-transcribe ou gpt-4o-mini-transcribe.
+realtime_model = "gpt-live-transcribe"
 # Langue de la dictée (code ISO 639-1).
 language = "fr"
 # Délai maximal d'une transcription, en secondes.
@@ -115,7 +126,9 @@ impl Default for IndicatorConfig {
 pub struct ApiConfig {
     pub api_key: String,
     pub base_url: String,
+    pub engine: String,
     pub model: String,
+    pub realtime_model: String,
     pub language: String,
     pub timeout_secs: u64,
 }
@@ -125,7 +138,9 @@ impl Default for ApiConfig {
         Self {
             api_key: String::new(),
             base_url: "https://api.openai.com/v1".into(),
+            engine: ENGINE_STANDARD.into(),
             model: "gpt-4o-transcribe".into(),
+            realtime_model: "gpt-live-transcribe".into(),
             language: "fr".into(),
             timeout_secs: 30,
         }
@@ -138,7 +153,9 @@ impl fmt::Debug for ApiConfig {
         f.debug_struct("ApiConfig")
             .field("api_key", &if self.api_key.is_empty() { "" } else { "***" })
             .field("base_url", &self.base_url)
+            .field("engine", &self.engine)
             .field("model", &self.model)
+            .field("realtime_model", &self.realtime_model)
             .field("language", &self.language)
             .field("timeout_secs", &self.timeout_secs)
             .finish()
@@ -146,6 +163,10 @@ impl fmt::Debug for ApiConfig {
 }
 
 impl ApiConfig {
+    pub fn is_realtime(&self) -> bool {
+        self.engine.trim().eq_ignore_ascii_case(ENGINE_REALTIME)
+    }
+
     /// Clé du fichier si renseignée, sinon celle de l'environnement.
     pub fn resolve_api_key(&self, env_value: Option<String>) -> Option<String> {
         let from_file = self.api_key.trim();

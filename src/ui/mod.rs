@@ -9,9 +9,10 @@ pub mod window;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::Config;
+use crate::config::{Config, ENGINE_REALTIME, ENGINE_STANDARD};
 use crate::history::Entry;
 use crate::settings::{mask_api_key, Change, VocabEdit, ACCENTS, MODELS, RELEASE_TAILS};
+use crate::transcription::realtime;
 use crate::tray::TrayState;
 
 /// Page de l'interface, embarquée dans l'exécutable.
@@ -78,8 +79,11 @@ pub struct AccentView {
 pub struct SettingsView {
     pub api_key_set: bool,
     pub api_key_hint: String,
+    pub engine: String,
     pub model: String,
     pub models: Vec<&'static str>,
+    pub realtime_model: String,
+    pub realtime_models: Vec<&'static str>,
     pub shortcut: String,
     pub push_to_talk: String,
     pub indicator: bool,
@@ -98,8 +102,16 @@ impl SettingsView {
         Self {
             api_key_set: api_key.is_some(),
             api_key_hint: api_key.map(mask_api_key).unwrap_or_default(),
+            engine: if config.api.is_realtime() {
+                ENGINE_REALTIME
+            } else {
+                ENGINE_STANDARD
+            }
+            .to_owned(),
             model: config.api.model.clone(),
             models: MODELS.to_vec(),
+            realtime_model: config.api.realtime_model.clone(),
+            realtime_models: realtime::MODELS.to_vec(),
             shortcut: config.hotkey.shortcut.clone(),
             push_to_talk: config.hotkey.push_to_talk.clone(),
             indicator: config.indicator.enabled,
@@ -235,6 +247,8 @@ mod tests {
         assert_eq!(view.api_key_hint, "sk-…1234");
         assert_eq!(view.accents.len(), 4);
         assert_eq!(view.release_tail_ms, 300);
+        assert_eq!(view.engine, "standard");
+        assert_eq!(view.realtime_model, "gpt-live-transcribe");
         assert!(!SettingsView::new(&Config::default(), None, false).api_key_set);
     }
 

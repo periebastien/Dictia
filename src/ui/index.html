@@ -167,7 +167,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       <div class="section">Transcription</div>
       <div class="list">
         <div class="set"><div class="lbl"><span>Moteur</span></div>
-          <div class="seg"><button class="on">Standard</button><button disabled title="Bientôt disponible">Realtime</button></div></div>
+          <div class="seg" id="engine"><button data-engine="standard">Standard</button><button data-engine="realtime" title="Le texte arrive presque aussitôt au relâchement">Realtime</button></div></div>
         <div class="set"><div class="lbl"><label for="model">Modèle</label></div>
           <select id="model" class="field"></select></div>
         <div class="set"><div class="lbl"><span>Clé API</span><span id="key-hint"></span></div>
@@ -438,7 +438,13 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   bindToggle('t-indicator', (on) => ({ cmd: 'change', change: { kind: 'indicator', value: on } }));
   bindToggle('t-space', (on) => ({ cmd: 'change', change: { kind: 'trailing_space', value: on } }));
   bindToggle('t-startup', (on) => ({ cmd: 'startup', value: on }));
-  $('model').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'model', value: e.target.value } }));
+  $('model').addEventListener('change', (e) => send({ cmd: 'change', change: {
+    kind: state.settings.engine === 'realtime' ? 'realtime_model' : 'model', value: e.target.value } }));
+  $('engine').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || b.dataset.engine === state.settings.engine) return;
+    send({ cmd: 'change', change: { kind: 'engine', value: b.dataset.engine } });
+  });
   $('tail').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'release_tail', value: Number(e.target.value) } }));
   $('key-edit').addEventListener('click', () => { $('key-form').hidden = false; $('key-input').focus(); });
   $('key-form').addEventListener('submit', (e) => {
@@ -454,8 +460,11 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   function renderSettings() {
     const s = state.settings;
     setAccent(s.accent);
-    $('model').replaceChildren(...s.models.map((m) => el('option', { value: m, text: m })));
-    $('model').value = s.model;
+    const realtime = s.engine === 'realtime';
+    document.querySelectorAll('#engine button').forEach((b) => b.classList.toggle('on', b.dataset.engine === s.engine));
+    const models = realtime ? s.realtime_models : s.models;
+    $('model').replaceChildren(...models.map((m) => el('option', { value: m, text: m })));
+    $('model').value = realtime ? s.realtime_model : s.model;
     $('tail').replaceChildren(...s.release_tails.map((ms) => el('option', { value: String(ms), text: ms ? ms + ' ms' : 'Non' })));
     $('tail').value = String(s.release_tail_ms);
     $('key-hint').textContent = s.api_key_set ? s.api_key_hint : 'Non renseignée';
