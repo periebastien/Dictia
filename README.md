@@ -182,7 +182,7 @@ sa clé (Réglages → **Clés API**), son modèle et son adresse :
 | Mistral     | `[mistral]`              | `MISTRAL_API_KEY` | Voxtral : termes du Vocabulaire envoyés en `context_bias` |
 | Local       | `[local]`                | (facultative) | serveur compatible OpenAI sur votre PC (ex. vLLM) |
 
-Le tableau des Performances distingue les fournisseurs, pour les comparer.
+Les Statistiques distinguent chaque fournisseur et chaque modèle.
 
 ### Moteur standard ou Realtime
 
@@ -203,9 +203,14 @@ Le tableau des Performances distingue les fournisseurs, pour les comparer.
   (par exemple **F9**) permet de voir le texte s'écrire pendant que vous
   parlez.
 
-Réglages → **Performances** compare les moteurs : médiane, moyenne et 90e
-centile de l'attente (fin de l'enregistrement → texte tapé), calculés à partir
-de `latences.csv`.
+L'icône **Statistiques** (en haut de la fenêtre) compare les modèles. Le
+chiffre principal est l'**attente prévue pour 10 s de parole** : pour chaque
+modèle, l'attente (fin de l'enregistrement → texte tapé, sans le temps où
+Ctrl/Alt/Win restent enfoncés) est décomposée en une part fixe et un coût par
+seconde de parole, ajustés sur les 200 dernières dictées par la méthode
+robuste de Theil-Sen. Les modèles restent ainsi comparables même si les
+dictées n'ont pas la même longueur. `latences.csv` note désormais aussi le
+fournisseur, le modèle et l'attente des touches.
 
 ### La fenêtre Dictia
 

@@ -25,6 +25,7 @@ header{height:52px;flex-shrink:0;display:flex;align-items:center;gap:10px;paddin
 .grow{flex-grow:1}
 .icon-btn{width:32px;height:32px;border:0;border-radius:6px;background:transparent;color:var(--muted);display:flex;align-items:center;justify-content:center}
 .icon-btn:hover{background:rgba(255,255,255,0.06);color:#fff}
+.icon-btn.on{color:var(--accent);background:rgba(255,255,255,0.06)}
 main{flex-grow:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px;user-select:text}
 main::-webkit-scrollbar{width:8px}main::-webkit-scrollbar-thumb{background:#33333C;border-radius:4px}
 .view{display:none;flex-direction:column;gap:12px}.view.on{display:flex}
@@ -90,10 +91,17 @@ select.field{width:auto;height:30px;padding:0 8px;font-size:12px}
 .notice{padding:10px 12px;border-radius:10px;background:rgba(124,131,255,0.12);border:1px solid rgba(124,131,255,0.35);font-size:12px;line-height:1.5}
 .toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);padding:6px 12px;border-radius:8px;background:#33333C;color:var(--text);font-size:12px;opacity:0;transition:opacity 200ms;pointer-events:none;max-width:320px;text-align:center}
 .toast.on{opacity:1}.toast.err{background:#7F1D1D}
-.perf{display:grid;grid-template-columns:minmax(0,1.3fr) repeat(4,minmax(0,1fr));gap:6px;align-items:center;min-height:34px;padding:4px 12px;font-size:12px;font-variant-numeric:tabular-nums}
-.perf span:not(:first-child){text-align:right}
-.perf.head{min-height:28px;font-size:11px;color:var(--muted)}
-.perf b{font-weight:600}
+.stat{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:10px;background:var(--panel);border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.stat.best{border-color:var(--accent)}
+.stat .top{display:flex;align-items:baseline;gap:8px;font-size:12px}
+.stat .top b{flex-grow:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stat .top span{color:var(--muted);font-size:11px;flex-shrink:0}
+.stat .big{display:flex;align-items:baseline;gap:6px;font-size:20px;font-weight:600}
+.stat .big small{font-size:11px;font-weight:500;color:var(--muted)}
+.stat .bar{height:4px;border-radius:2px;background:#33333C;overflow:hidden}
+.stat .bar span{display:block;height:100%;border-radius:2px;background:var(--accent)}
+.stat .line{font-size:11px;color:var(--muted);line-height:1.5}
+.stat .tag{align-self:flex-start;font-size:10px}
 .footer{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)}
 nav{height:64px;flex-shrink:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--line);background:#17171C}
 nav button{position:relative;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--muted);font-size:11px;font-weight:500}
@@ -110,6 +118,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     <div class="brand">Dictia</div>
     <div id="status" class="pill idle"><span class="dot"></span><span id="status-text">Prêt</span></div>
     <div class="grow"></div>
+    <button class="icon-btn" id="btn-stats" aria-label="Statistiques" title="Statistiques"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-4M12 16V8M17 16v-7"/></svg></button>
     <button class="icon-btn" id="btn-min" aria-label="Réduire"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
     <button class="icon-btn" id="btn-close" aria-label="Fermer dans la zone de notification"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
@@ -165,6 +174,19 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       <p class="sub" style="line-height:1.5">Cliquez sur un raccourci puis appuyez sur la nouvelle combinaison (Échap pour annuler). Utilisez au moins une touche Ctrl, Alt, Maj ou Win.</p>
     </section>
 
+    <!-- Statistiques (icône de l'en-tête) -->
+    <section class="view" id="view-statistiques">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <h2>Statistiques par modèle</h2>
+        <p class="sub" style="line-height:1.5">Le chiffre principal est l'<b>attente prévue pour 10 s de parole</b> : comparable entre modèles, même si vos dictées n'ont pas la même longueur.</p>
+      </div>
+      <div id="perf" style="display:flex;flex-direction:column;gap:8px"></div>
+      <details class="sub" style="line-height:1.5">
+        <summary style="cursor:pointer">Comment c'est calculé</summary>
+        <p style="margin:6px 0 0">L'attente va de la fin de l'enregistrement au texte entièrement tapé, sans le temps où Ctrl, Alt ou Win restent enfoncés. Pour chaque modèle, elle est décomposée en une <b>part fixe</b> (réseau, mise en route) et un <b>coût par seconde de parole</b> envoyée, ajustés sur vos 200 dernières dictées par une méthode robuste (Theil-Sen) qui ignore les dictées anormalement lentes. Il faut au moins 5 dictées de durées variées (2 s d'écart) ; avant cela, la médiane brute est affichée.</p>
+      </details>
+    </section>
+
     <!-- Réglages -->
     <section class="view" id="view-reglages">
       <div class="notice" id="key-notice" hidden></div>
@@ -200,9 +222,6 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
         <div class="set"><div class="lbl"><span>Couleur d'accent</span></div>
           <div class="swatches" id="swatches"></div></div>
       </div>
-      <div class="section">Performances</div>
-      <div class="list" id="perf"></div>
-      <p class="sub" style="line-height:1.5">Attente : de la fin de l'enregistrement (après l'éventuel prolongement) au texte entièrement tapé, sur les 200 dernières dictées de chaque moteur. « Repli » : dictées Realtime retranscrites par le moteur standard.</p>
       <div class="footer"><button class="link" id="open-folder">Ouvrir le dossier de configuration</button><span id="version"></span></div>
     </section>
   </main>
@@ -253,9 +272,12 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   }
 
   // ---- navigation ----
+  $('btn-stats').addEventListener('click', () => showTab('statistiques'));
   function showTab(tab) {
     document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
     document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'view-' + tab));
+    $('btn-stats').classList.toggle('on', tab === 'statistiques');
+    document.querySelector('main').scrollTop = 0;
   }
   document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
@@ -555,7 +577,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     }));
   }
 
-  // ---- performances ----
+  // ---- statistiques ----
   function secs(ms) { return ms == null ? '–' : (ms / 1000).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' s'; }
   function renderStats(stats) {
     const box = $('perf');
@@ -563,15 +585,24 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       box.replaceChildren(el('div', { class: 'empty', text: 'Les mesures apparaîtront après vos premières dictées.' }));
       return;
     }
-    const head = el('div', { class: 'perf head' }, ['Moteur', 'Médiane', 'Moyenne', '90 %', 'Dictées'].map((t) => el('span', { text: t })));
-    box.replaceChildren(head, ...stats.map((s) => el('div', { class: 'perf', title:
-      '1er texte (médiane) : ' + secs(s.first_text_median_ms) + ' · parole (médiane) : ' + secs(s.speech_median_ms) }, [
-      el('b', { text: s.engine }),
-      el('span', { text: secs(s.wait_median_ms) }),
-      el('span', { text: secs(s.wait_mean_ms) }),
-      el('span', { text: secs(s.wait_p90_ms) }),
-      el('span', { text: String(s.count) })
-    ])));
+    const max = Math.max(...stats.map((s) => s.reference_ms), 1);
+    const bestFitted = stats.find((s) => s.fitted);
+    box.replaceChildren(...stats.map((s) => {
+      const lines = [];
+      if (s.fitted) {
+        lines.push(el('div', { class: 'line', text: 'Part fixe ' + secs(s.fixed_ms) + ' + ' + s.per_second_ms + ' ms par seconde de parole' }));
+      } else {
+        lines.push(el('div', { class: 'line', text: 'Estimation après 5 dictées de durées variées : en attendant, médiane brute.' }));
+      }
+      lines.push(el('div', { class: 'line', text: 'Mesuré : médiane ' + secs(s.wait_median_ms) + ' · 9 sur 10 sous ' + secs(s.wait_p90_ms)
+        + ' · parole médiane ' + secs(s.speech_median_ms) + (s.first_text_median_ms != null ? ' · 1er texte ' + secs(s.first_text_median_ms) : '') }));
+      return el('div', { class: 'stat' + (s === bestFitted && stats.filter((x) => x.fitted).length > 1 ? ' best' : '') }, [
+        el('div', { class: 'top' }, [el('b', { text: s.label, title: s.label }), el('span', { text: s.count + (s.count > 1 ? ' dictées' : ' dictée') })]),
+        el('div', { class: 'big' }, [secs(s.reference_ms), el('small', { text: s.fitted ? 'pour 10 s de parole' : 'médiane (provisoire)' })]),
+        el('div', { class: 'bar' }, [el('span', { style: 'width:' + Math.max(3, Math.round(100 * s.reference_ms / max)) + '%' })]),
+        ...lines
+      ]);
+    }));
   }
 
   // ---- messages venant de Dictia ----

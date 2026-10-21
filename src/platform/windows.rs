@@ -100,8 +100,10 @@ pub fn shortcut_modifiers_down() -> bool {
 }
 
 /// Attend que Ctrl, Alt, Maj et Win soient relâchés (au plus `timeout`).
-pub fn wait_modifiers_released(timeout: Duration) {
-    let deadline = Instant::now() + timeout;
+/// Renvoie le temps attendu.
+pub fn wait_modifiers_released(timeout: Duration) -> Duration {
+    let start = Instant::now();
+    let deadline = start + timeout;
     let mods = [VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN];
     while mods
         .iter()
@@ -109,10 +111,11 @@ pub fn wait_modifiers_released(timeout: Duration) {
     {
         if Instant::now() > deadline {
             log::warn!("modificateurs toujours enfoncés, frappe quand même");
-            return;
+            return start.elapsed();
         }
         thread::sleep(Duration::from_millis(10));
     }
+    start.elapsed()
 }
 
 fn key_input(vk: VIRTUAL_KEY, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {

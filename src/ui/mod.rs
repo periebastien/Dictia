@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::{Config, Provider, ENGINE_REALTIME, ENGINE_STANDARD};
 use crate::history::Entry;
 use crate::settings::{mask_api_key, suggested_models, Change, VocabEdit, ACCENTS, RELEASE_TAILS};
-use crate::stats::EngineStats;
+use crate::stats::ModelStats;
 use crate::transcription::realtime;
 use crate::tray::TrayState;
 
@@ -184,11 +184,11 @@ pub enum Message {
         settings: SettingsView,
         vocab: VocabEdit,
         history: Vec<Entry>,
-        stats: Vec<EngineStats>,
+        stats: Vec<ModelStats>,
         tab: Option<Tab>,
     },
     Stats {
-        stats: Vec<EngineStats>,
+        stats: Vec<ModelStats>,
     },
     Settings {
         settings: SettingsView,

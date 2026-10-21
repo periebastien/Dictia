@@ -27,7 +27,7 @@ use crate::metrics::METRICS_FILE;
 use crate::overlay::{self, Animation};
 use crate::platform::{self, HostWindow, OverlayWindow, UiRequest};
 use crate::settings::{self, Change, VocabEdit};
-use crate::stats::{self, EngineStats};
+use crate::stats::{self, ModelStats};
 use crate::transcription::standard::StandardBackend;
 use crate::transcription::Backend;
 use crate::tray::{Tray, TrayState, MENU_OPEN_CONFIG, MENU_OPEN_UI, MENU_QUIT};
@@ -283,7 +283,7 @@ impl MainLoop {
     }
 
     /// Statistiques de latence à partir de `latences.csv`.
-    fn stats(&self) -> Vec<EngineStats> {
+    fn stats(&self) -> Vec<ModelStats> {
         fs::read_to_string(self.dir.join(METRICS_FILE))
             .map(|csv| stats::compute(&csv))
             .unwrap_or_default()
