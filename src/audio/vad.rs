@@ -62,6 +62,7 @@ mod tests {
             silence_threshold_db: -40.0,
             padding_ms: 100,
             min_speech_ms: 100,
+            release_tail_ms: 0,
         }
     }
 

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
 use crate::history::Entry;
-use crate::settings::{mask_api_key, Change, VocabEdit, ACCENTS, MODELS};
+use crate::settings::{mask_api_key, Change, VocabEdit, ACCENTS, MODELS, RELEASE_TAILS};
 use crate::tray::TrayState;
 
 /// Page de l'interface, embarquée dans l'exécutable.
@@ -84,6 +84,8 @@ pub struct SettingsView {
     pub push_to_talk: String,
     pub indicator: bool,
     pub trailing_space: bool,
+    pub release_tail_ms: u32,
+    pub release_tails: Vec<u32>,
     pub start_with_windows: bool,
     pub accent: String,
     pub accents: Vec<AccentView>,
@@ -102,6 +104,8 @@ impl SettingsView {
             push_to_talk: config.hotkey.push_to_talk.clone(),
             indicator: config.indicator.enabled,
             trailing_space: config.inject.trailing_space,
+            release_tail_ms: config.audio.release_tail_ms,
+            release_tails: RELEASE_TAILS.to_vec(),
             start_with_windows,
             accent: config.ui.accent.clone(),
             accents: ACCENTS
@@ -230,6 +234,7 @@ mod tests {
         assert!(!json.contains("secret"), "{json}");
         assert_eq!(view.api_key_hint, "sk-…1234");
         assert_eq!(view.accents.len(), 4);
+        assert_eq!(view.release_tail_ms, 300);
         assert!(!SettingsView::new(&Config::default(), None, false).api_key_set);
     }
 

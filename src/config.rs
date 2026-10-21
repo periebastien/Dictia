@@ -55,6 +55,9 @@ silence_threshold_db = -50.0
 padding_ms = 150
 # Durée minimale de parole pour lancer une transcription, en millisecondes.
 min_speech_ms = 200
+# « Maintenir pour parler » : l'écoute continue ce temps (ms) après le
+# relâchement, pour ne pas couper la fin d'une phrase. 0 = arrêt immédiat.
+release_tail_ms = 300
 
 [inject]
 # Ajoute une espace après le texte tapé, pour enchaîner les dictées.
@@ -177,6 +180,7 @@ pub struct AudioConfig {
     pub silence_threshold_db: f32,
     pub padding_ms: u32,
     pub min_speech_ms: u32,
+    pub release_tail_ms: u32,
 }
 
 impl Default for AudioConfig {
@@ -185,6 +189,7 @@ impl Default for AudioConfig {
             silence_threshold_db: -50.0,
             padding_ms: 150,
             min_speech_ms: 200,
+            release_tail_ms: 300,
         }
     }
 }

@@ -12,6 +12,7 @@ use tokio::sync::{mpsc, Mutex};
 use crate::audio::capture::Recorder;
 use crate::audio::{duration_of, flac, vad, TARGET_RATE};
 use crate::config::Config;
+use crate::dictation::{self, Effect, Phase};
 use crate::history::{self, Entry};
 use crate::hotkey::Action;
 use crate::inject;
@@ -140,21 +141,50 @@ pub struct Controller {
 
 impl Controller {
     pub async fn run(self, mut rx: mpsc::UnboundedReceiver<Action>) {
+        let mut phase = Phase::Idle;
         let mut session: Option<Session> = None;
-        while let Some(action) = rx.recv().await {
-            session = match (action, session.take()) {
-                (Action::Toggle, None) => self.start("Bascule"),
-                (Action::Start, None) => self.start("Maintien"),
-                (Action::Toggle | Action::Stop, Some(s)) => {
-                    self.stop(s);
-                    None
-                }
-                // Déjà dans l'état demandé (ex. push-to-talk pendant une
-                // dictée en mode bascule : le relâchement l'arrêtera).
-                (Action::Start, s @ Some(_)) => s,
-                (Action::Stop, None) => None,
+        // Arrêt programmé (prolongement après relâchement).
+        let mut deadline: Option<tokio::time::Instant> = None;
+        loop {
+            let (next, effect) = tokio::select! {
+                action = rx.recv() => match action {
+                    Some(action) => dictation::on_action(phase, action, self.release_tail()),
+                    None => break,
+                },
+                () = sleep_until_opt(deadline) => dictation::on_tail_elapsed(phase),
             };
+            phase = next;
+            match effect {
+                Effect::Start(mode) => {
+                    session = self.start(mode);
+                    if session.is_none() {
+                        phase = Phase::Idle;
+                    }
+                }
+                Effect::Stop => {
+                    deadline = None;
+                    if let Some(s) = session.take() {
+                        self.stop(s);
+                    }
+                }
+                Effect::StopAfter(tail) => {
+                    deadline = Some(tokio::time::Instant::now() + tail);
+                }
+                Effect::KeepRecording => {
+                    deadline = None;
+                    log::debug!("nouvel appui pendant le prolongement : la dictée continue");
+                }
+                Effect::Nothing => {}
+            }
         }
+    }
+
+    fn release_tail(&self) -> Duration {
+        let ms = self
+            .shared
+            .read()
+            .map_or(0, |s| s.config.audio.release_tail_ms);
+        Duration::from_millis(u64::from(ms))
     }
 
     fn backend(&self) -> Option<Arc<dyn Backend>> {
@@ -341,5 +371,13 @@ impl Controller {
         let _ = self.events.send(Event::History(entry));
         self.status.notify();
         Ok(())
+    }
+}
+
+/// Attend `deadline`, ou indéfiniment s'il n'y en a pas.
+async fn sleep_until_opt(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(d) => tokio::time::sleep_until(d).await,
+        None => std::future::pending().await,
     }
 }
