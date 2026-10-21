@@ -20,8 +20,8 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{AttachThreadInput, CreateMutexW, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
-    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RETURN,
-    VK_RWIN, VK_SHIFT, VK_TAB,
+    KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_LWIN, VK_MENU,
+    VK_RETURN, VK_RWIN, VK_SHIFT, VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
@@ -92,6 +92,13 @@ pub fn focus_window(target: WindowHandle) -> bool {
     true
 }
 
+/// Ctrl, Alt ou Win enfoncé : une frappe serait prise pour un raccourci.
+pub fn shortcut_modifiers_down() -> bool {
+    [VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN]
+        .iter()
+        .any(|vk| unsafe { GetAsyncKeyState(i32::from(vk.0)) } < 0)
+}
+
 /// Attend que Ctrl, Alt, Maj et Win soient relâchés (au plus `timeout`).
 pub fn wait_modifiers_released(timeout: Duration) {
     let deadline = Instant::now() + timeout;
@@ -130,6 +137,7 @@ fn inputs_for(keys: &[Keystroke]) -> Vec<INPUT> {
             Keystroke::Unit(u) => (VIRTUAL_KEY(0), u, KEYEVENTF_UNICODE),
             Keystroke::Enter => (VK_RETURN, 0, KEYBD_EVENT_FLAGS(0)),
             Keystroke::Tab => (VK_TAB, 0, KEYBD_EVENT_FLAGS(0)),
+            Keystroke::Backspace => (VK_BACK, 0, KEYBD_EVENT_FLAGS(0)),
         };
         inputs.push(key_input(vk, scan, flags));
         inputs.push(key_input(vk, scan, flags | KEYEVENTF_KEYUP));

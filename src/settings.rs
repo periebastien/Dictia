@@ -31,6 +31,7 @@ pub enum Change {
     PushToTalk { value: String },
     Indicator { value: bool },
     TrailingSpace { value: bool },
+    LiveTyping { value: bool },
     ReleaseTail { value: u32 },
     Accent { value: String },
 }
@@ -116,6 +117,7 @@ pub fn apply_config_change(text: &str, current: &Config, change: &Change) -> Res
         Change::TrailingSpace { value: v } => {
             table(&mut doc, "inject")["trailing_space"] = value(*v)
         }
+        Change::LiveTyping { value: v } => table(&mut doc, "inject")["live_typing"] = value(*v),
         Change::ReleaseTail { value: v } => {
             if *v > 2_000 {
                 bail!("prolongement trop long : {v} ms (2 000 ms au plus)");

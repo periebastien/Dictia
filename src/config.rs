@@ -73,6 +73,10 @@ release_tail_ms = 300
 [inject]
 # Ajoute une espace après le texte tapé, pour enchaîner les dictées.
 trailing_space = true
+# Moteur realtime : tape le texte au fil de la dictée (mot par mot), dès
+# qu'aucune touche Ctrl, Alt ou Win n'est enfoncée. Le texte final, avec les
+# remplacements, corrige au besoin ce qui a été tapé.
+live_typing = true
 
 [indicator]
 # Animation à côté du curseur : point rouge et barres de volume pendant
@@ -219,12 +223,14 @@ impl Default for AudioConfig {
 #[serde(default)]
 pub struct InjectConfig {
     pub trailing_space: bool,
+    pub live_typing: bool,
 }
 
 impl Default for InjectConfig {
     fn default() -> Self {
         Self {
             trailing_space: true,
+            live_typing: true,
         }
     }
 }

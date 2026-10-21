@@ -16,6 +16,7 @@ use crate::dictation::{self, Effect, Phase};
 use crate::history::{self, Entry};
 use crate::hotkey::Action;
 use crate::inject;
+use crate::live_typing;
 use crate::metrics::Latencies;
 use crate::platform::{self, WindowHandle};
 use crate::transcription::realtime::{self, RealtimeConfig};
@@ -135,6 +136,7 @@ struct Capture {
 struct Live {
     task: tokio::task::JoinHandle<Result<String>>,
     marks: Arc<std::sync::Mutex<LiveMarks>>,
+    typer: Option<Typer>,
 }
 
 /// Instants des jalons de la session en direct, pour les latences.
@@ -145,9 +147,14 @@ struct LiveMarks {
 }
 
 impl Live {
-    fn spawn(config: RealtimeConfig, audio: mpsc::UnboundedReceiver<Vec<i16>>) -> Self {
+    fn spawn(
+        config: RealtimeConfig,
+        audio: mpsc::UnboundedReceiver<Vec<i16>>,
+        typer: Option<Typer>,
+    ) -> Self {
         let marks = Arc::new(std::sync::Mutex::new(LiveMarks::default()));
         let recorder = Arc::clone(&marks);
+        let to_typer = typer.as_ref().map(|t| t.tx.clone());
         let task = tokio::spawn(realtime::run_session(config, audio, move |p| {
             if let Ok(mut m) = recorder.lock() {
                 match p {
@@ -157,9 +164,85 @@ impl Live {
                     }
                 }
             }
+            if let (Progress::Delta(d), Some(tx)) = (p, &to_typer) {
+                let _ = tx.send(TyperMsg::Delta(d.to_owned()));
+            }
         }));
-        Self { task, marks }
+        Self { task, marks, typer }
     }
+}
+
+/// Ordre transmis à la frappe en direct.
+enum TyperMsg {
+    /// Fragment de transcription reçu pendant la dictée.
+    Delta(String),
+    /// Texte final (remplacements appliqués) : dernière correction.
+    Finish(String),
+    /// Rien à garder : efface ce qui a été tapé.
+    Erase,
+}
+
+/// Frappe au fil de la transcription en direct (moteur realtime).
+struct Typer {
+    tx: mpsc::UnboundedSender<TyperMsg>,
+    task: tokio::task::JoinHandle<Result<()>>,
+}
+
+impl Typer {
+    fn spawn(target: Option<WindowHandle>, vocab: Arc<Vocab>, lock: Arc<Mutex<()>>) -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let task = tokio::spawn(run_typer(target, vocab, lock, rx));
+        Self { tx, task }
+    }
+
+    /// Envoie la dernière consigne et attend que la frappe soit terminée.
+    async fn finish(self, last: TyperMsg) -> Result<()> {
+        let _ = self.tx.send(last);
+        self.task.await?
+    }
+}
+
+async fn run_typer(
+    target: Option<WindowHandle>,
+    vocab: Arc<Vocab>,
+    lock: Arc<Mutex<()>>,
+    mut rx: mpsc::UnboundedReceiver<TyperMsg>,
+) -> Result<()> {
+    let mut typed = String::new();
+    let mut raw = String::new();
+    // Pris à la première frappe seulement : une dictée précédente encore en
+    // cours de traitement tape son texte avant celui-ci.
+    let mut guard = None;
+    while let Some(msg) = rx.recv().await {
+        let (wanted, last) = match msg {
+            TyperMsg::Delta(d) => {
+                raw.push_str(&d);
+                let applied = vocab.apply(&raw);
+                (live_typing::stable_prefix(&applied).to_owned(), false)
+            }
+            TyperMsg::Finish(text) => (text, true),
+            TyperMsg::Erase => (String::new(), true),
+        };
+        if !last && !inject::can_type_live(target) {
+            continue;
+        }
+        let (erase, insert) = live_typing::diff(&typed, &wanted);
+        if erase > 0 || !insert.is_empty() {
+            if guard.is_none() {
+                guard = Some(lock.lock().await);
+            }
+            let insert = insert.to_owned();
+            tokio::task::spawn_blocking(move || {
+                inject::apply_correction(target, erase, &insert, last)
+            })
+            .await??;
+            typed = wanted;
+        }
+        if last {
+            break;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -256,7 +339,12 @@ impl Controller {
         let (live, live_audio) = match realtime {
             Some(config) => {
                 let (tx, rx) = mpsc::unbounded_channel();
-                (Some(Live::spawn(config, rx)), Some(tx))
+                let typer = self.shared.read().ok().and_then(|s| {
+                    s.config.inject.live_typing.then(|| {
+                        Typer::spawn(target, Arc::clone(&s.vocab), Arc::clone(&self.inject_lock))
+                    })
+                });
+                (Some(Live::spawn(config, rx, typer)), Some(tx))
             }
             None => {
                 tokio::spawn(async move { backend.warm_up().await });
@@ -368,16 +456,21 @@ impl Controller {
             (samples, range)
         })
         .await?;
+        let mut live = capture.live;
+        let typer = live.as_mut().and_then(|l| l.typer.take());
         let Some(speech) = speech else {
-            if let Some(live) = capture.live {
+            if let Some(live) = live {
                 live.task.abort();
+            }
+            if let Some(typer) = typer {
+                typer.finish(TyperMsg::Erase).await?;
             }
             log::info!("aucune parole détectée, rien à transcrire");
             return Ok(());
         };
         lat.speech = duration_of(speech.len(), TARGET_RATE);
 
-        let text = match capture.live {
+        let text = match live {
             Some(live) => match finish_live(live, stopped, &mut lat).await {
                 Ok(text) => text,
                 Err(e) => {
@@ -406,31 +499,46 @@ impl Controller {
         };
         lat.done = stopped.elapsed();
 
-        if vocab.is_prompt_echo(&text) {
+        let text = if vocab.is_prompt_echo(&text) {
             log::info!("transcription ignorée : le modèle a recopié le prompt (pas de parole ?)");
-            return Ok(());
-        }
-        let text = inject::prepare_text(&vocab.apply(&text), config.inject.trailing_space);
+            String::new()
+        } else {
+            inject::prepare_text(&vocab.apply(&text), config.inject.trailing_space)
+        };
         lat.chars = text.chars().count();
+
+        let target = capture.target;
+        let typing = Instant::now();
+        match typer {
+            // Frappe en direct : il ne reste qu'à corriger ou compléter.
+            Some(typer) => {
+                let last = if text.is_empty() {
+                    TyperMsg::Erase
+                } else {
+                    TyperMsg::Finish(text.clone())
+                };
+                typer.finish(last).await?;
+            }
+            None if !text.is_empty() => {
+                let _guard = self.inject_lock.lock().await;
+                let typed = text.clone();
+                tokio::task::spawn_blocking(move || inject::type_into(target, &typed)).await??;
+            }
+            None => {}
+        }
         if text.is_empty() {
             log::info!("transcription vide");
             return Ok(());
         }
-
-        let _guard = self.inject_lock.lock().await;
-        let typing = Instant::now();
-        let target = capture.target;
-        let typed = text.clone();
-        let app = tokio::task::spawn_blocking(move || -> Result<String> {
-            inject::type_into(target, &typed)?;
-            Ok(target
-                .and_then(platform::window_exe)
-                .map(|exe| history::friendly_app_name(&exe))
-                .unwrap_or_default())
-        })
-        .await??;
         lat.inject = typing.elapsed();
         lat.total = stopped.elapsed();
+        let app = tokio::task::spawn_blocking(move || {
+            target
+                .and_then(platform::window_exe)
+                .map(|exe| history::friendly_app_name(&exe))
+                .unwrap_or_default()
+        })
+        .await?;
 
         log::info!("{}", lat.summary());
         if let Err(e) = lat.append_csv(&self.metrics_path) {
