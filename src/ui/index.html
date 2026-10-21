@@ -167,21 +167,21 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
 
     <!-- Réglages -->
     <section class="view" id="view-reglages">
-      <div class="notice" id="key-notice" hidden>Ajoutez votre clé API OpenAI ci-dessous pour commencer à dicter.</div>
+      <div class="notice" id="key-notice" hidden></div>
       <div class="section">Transcription</div>
       <div class="list">
-        <div class="set"><div class="lbl"><span>Moteur</span></div>
+        <div class="set"><div class="lbl"><span>Fournisseur</span></div>
+          <div class="seg" id="provider"></div></div>
+        <div class="set" id="row-engine"><div class="lbl"><span>Moteur</span></div>
           <div class="seg" id="engine"><button data-engine="standard">Standard</button><button data-engine="realtime" title="Le texte arrive presque aussitôt au relâchement">Realtime</button></div></div>
-        <div class="set"><div class="lbl"><label for="model">Modèle</label></div>
-          <select id="model" class="field"></select></div>
-        <div class="set"><div class="lbl"><span>Clé API</span><span id="key-hint"></span></div>
-          <button class="btn ghost" style="height:28px;font-size:12px" id="key-edit">Modifier</button></div>
-        <form class="set" id="key-form" hidden>
-          <label for="key-input" class="sr">Clé API OpenAI</label>
-          <input id="key-input" class="field" type="password" placeholder="sk-…" autocomplete="off" style="height:32px;flex-grow:1;min-width:0">
-          <button class="btn" type="submit" style="height:32px">Enregistrer</button>
-        </form>
+        <div class="set"><div class="lbl"><label for="model">Modèle</label><span>Choisissez ou saisissez un nom</span></div>
+          <input id="model" class="field" list="model-list" autocomplete="off" spellcheck="false" style="width:190px;height:30px;font-size:12px">
+          <datalist id="model-list"></datalist></div>
+        <div class="set"><div class="lbl"><label for="url">Adresse de l'API</label></div>
+          <input id="url" class="field" autocomplete="off" spellcheck="false" style="width:190px;height:30px;font-size:12px"></div>
       </div>
+      <div class="section">Clés API</div>
+      <div class="list" id="keys"></div>
       <div class="section">Dictée</div>
       <div class="list">
         <div class="set"><div class="lbl"><span>Animation près du curseur</span><span>Écoute en rouge, transcription en orange</span></div>
@@ -448,37 +448,50 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   bindToggle('t-space', (on) => ({ cmd: 'change', change: { kind: 'trailing_space', value: on } }));
   bindToggle('t-live', (on) => ({ cmd: 'change', change: { kind: 'live_typing', value: on } }));
   bindToggle('t-startup', (on) => ({ cmd: 'startup', value: on }));
-  $('model').addEventListener('change', (e) => send({ cmd: 'change', change: {
-    kind: state.settings.engine === 'realtime' ? 'realtime_model' : 'model', value: e.target.value } }));
+  const active = () => state.settings.providers.find((p) => p.id === state.settings.provider);
+  const realtimeOn = () => active().realtime && state.settings.engine === 'realtime';
+  $('model').addEventListener('change', (e) => {
+    const value = e.target.value.trim();
+    if (!value) { renderSettings(); return; }
+    send({ cmd: 'change', change: realtimeOn()
+      ? { kind: 'realtime_model', value }
+      : { kind: 'provider_model', provider: state.settings.provider, value } });
+  });
+  $('url').addEventListener('change', (e) => send({ cmd: 'change', change: {
+    kind: 'provider_url', provider: state.settings.provider, value: e.target.value.trim() } }));
+  $('provider').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || b.dataset.provider === state.settings.provider) return;
+    send({ cmd: 'change', change: { kind: 'provider', value: b.dataset.provider } });
+  });
   $('engine').addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b || b.dataset.engine === state.settings.engine) return;
     send({ cmd: 'change', change: { kind: 'engine', value: b.dataset.engine } });
   });
   $('tail').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'release_tail', value: Number(e.target.value) } }));
-  $('key-edit').addEventListener('click', () => { $('key-form').hidden = false; $('key-input').focus(); });
-  $('key-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const v = $('key-input').value.trim();
-    if (!v) return;
-    send({ cmd: 'change', change: { kind: 'api_key', value: v } });
-    $('key-input').value = '';
-    $('key-form').hidden = true;
-  });
   $('open-folder').addEventListener('click', () => send({ cmd: 'open_folder' }));
 
   function renderSettings() {
     const s = state.settings;
     setAccent(s.accent);
-    const realtime = s.engine === 'realtime';
+    const p = active();
+    const realtime = realtimeOn();
+    $('provider').replaceChildren(...s.providers.map((x) => el('button', {
+      'data-provider': x.id, class: x.id === s.provider ? 'on' : '', text: x.name })));
+    $('row-engine').hidden = !p.realtime;
     document.querySelectorAll('#engine button').forEach((b) => b.classList.toggle('on', b.dataset.engine === s.engine));
-    const models = realtime ? s.realtime_models : s.models;
-    $('model').replaceChildren(...models.map((m) => el('option', { value: m, text: m })));
-    $('model').value = realtime ? s.realtime_model : s.model;
+    const models = realtime ? s.realtime_models : p.models;
+    $('model-list').replaceChildren(...models.map((m) => el('option', { value: m })));
+    $('model').value = realtime ? s.realtime_model : p.model;
+    $('url').value = p.base_url;
+    $('url').disabled = realtime;
+    renderKeys();
     $('tail').replaceChildren(...s.release_tails.map((ms) => el('option', { value: String(ms), text: ms ? ms + ' ms' : 'Non' })));
     $('tail').value = String(s.release_tail_ms);
-    $('key-hint').textContent = s.api_key_set ? s.api_key_hint : 'Non renseignée';
-    $('key-notice').hidden = s.api_key_set;
+    const missing = p.needs_key && !p.api_key_set;
+    $('key-notice').hidden = !missing;
+    $('key-notice').textContent = 'Ajoutez votre clé API ' + p.name + ' ci-dessous pour commencer à dicter.';
     setToggle('t-indicator', s.indicator);
     setToggle('t-space', s.trailing_space);
     setToggle('t-live', s.live_typing);
@@ -491,6 +504,43 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     })));
     $('version').textContent = 'Dictia ' + s.version;
     renderShortcuts();
+  }
+
+  // ---- clés API ----
+  let editingKey = null;
+  function renderKeys() {
+    const s = state.settings;
+    $('keys').replaceChildren(...s.providers.map((p) => {
+      if (editingKey === p.id) {
+        const input = el('input', { class: 'field', type: 'password', autocomplete: 'off',
+          placeholder: p.needs_key ? 'Collez la clé ' + p.name : 'Clé facultative',
+          'aria-label': 'Clé API ' + p.name, style: 'height:32px;flex-grow:1;min-width:0' });
+        const form = el('form', { class: 'set', onsubmit: (e) => {
+          e.preventDefault();
+          send({ cmd: 'change', change: { kind: 'provider_key', provider: p.id, value: input.value.trim() } });
+          editingKey = null;
+          renderKeys();
+        } }, [
+          input,
+          el('button', { class: 'btn ghost', type: 'button', style: 'height:32px', text: 'Annuler',
+            onclick: () => { editingKey = null; renderKeys(); } }),
+          el('button', { class: 'btn', type: 'submit', style: 'height:32px', text: 'OK' })
+        ]);
+        setTimeout(() => input.focus(), 0);
+        return form;
+      }
+      const hint = p.api_key_set ? p.api_key_hint : (p.needs_key ? 'Non renseignée' : 'Facultative');
+      return el('div', { class: 'set' }, [
+        el('div', { class: 'lbl' }, [
+          el('span', { text: p.name + (p.id === s.provider ? ' · actif' : '') }),
+          el('span', { text: hint })
+        ]),
+        el('button', { class: 'btn ghost', style: 'height:28px;font-size:12px',
+          text: p.api_key_set ? 'Modifier' : 'Ajouter',
+          'aria-label': (p.api_key_set ? 'Modifier' : 'Ajouter') + ' la clé ' + p.name,
+          onclick: () => { editingKey = p.id; renderKeys(); } })
+      ]);
+    }));
   }
 
   // ---- performances ----

@@ -171,6 +171,19 @@ la dictée :
 Elle disparaît dès que le texte est tapé. Pour la masquer :
 `[indicator] enabled = false`.
 
+### Fournisseurs : OpenAI, Mistral, Local
+
+Réglages → **Fournisseur** choisit le service de transcription ; chacun a
+sa clé (Réglages → **Clés API**), son modèle et son adresse :
+
+| Fournisseur | Section de `config.toml` | Clé de secours | Format |
+|-------------|--------------------------|----------------|--------|
+| OpenAI      | `[api]`                  | `OPENAI_API_KEY` | `prompt`, moteur Realtime disponible |
+| Mistral     | `[mistral]`              | `MISTRAL_API_KEY` | Voxtral : termes du Vocabulaire envoyés en `context_bias` |
+| Local       | `[local]`                | (facultative) | serveur compatible OpenAI sur votre PC (ex. vLLM) |
+
+Le tableau des Performances distingue les fournisseurs, pour les comparer.
+
 ### Moteur standard ou Realtime
 
 - **Standard** (par défaut) : l'audio est envoyé quand vous avez fini de

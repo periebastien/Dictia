@@ -310,8 +310,9 @@ impl Controller {
         let shared = self.shared.read().ok()?;
         let backend = shared.backend.clone()?;
         let api = &shared.config.api;
-        let realtime = api
-            .is_realtime()
+        let realtime = shared
+            .config
+            .uses_realtime()
             .then(|| shared.api_key.clone())
             .flatten()
             .map(|api_key| RealtimeConfig {
@@ -320,7 +321,7 @@ impl Controller {
                 model: api.realtime_model.clone(),
                 language: api.language.clone(),
                 prompt: shared.vocab.prompt().to_owned(),
-                keywords: shared.vocab_file.terms.clone(),
+                keywords: shared.vocab.terms().to_vec(),
                 timeout: Duration::from_secs(api.timeout_secs.max(1)),
             });
         Some((backend, realtime))
@@ -606,7 +607,7 @@ async fn transcribe_file(
         backend
             .transcribe(
                 AudioPayload::flac(flac_bytes),
-                vocab.prompt(),
+                vocab.guidance(),
                 &mut progress,
             )
             .await?

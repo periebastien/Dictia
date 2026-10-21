@@ -18,7 +18,7 @@ use tokio::sync::{mpsc, Mutex};
 use tray_icon::menu::MenuEvent;
 use tray_icon::{MouseButton, MouseButtonState, TrayIconEvent};
 
-use crate::config::{self, Config, API_KEY_ENV, CONFIG_FILE};
+use crate::config::{self, Config, CONFIG_FILE};
 use crate::controller::{Controller, Event, Shared, SharedRef, Status};
 use crate::history::{self, Entry, HISTORY_FILE, MAX_ENTRIES};
 use crate::hotkey::{self, Registration};
@@ -60,13 +60,13 @@ pub fn run() -> Result<()> {
     let vocab_file = vocab::load_file_or_create(&dir)?;
     let vocab = Vocab::from_file(&vocab_file)?;
     log::info!(
-        "configuration : {:?} ; prompt de {} caractères, {} remplacement(s)",
+        "configuration : {:?} ; fournisseur {} ; prompt de {} caractères, {} remplacement(s)",
         config.api,
+        config.provider().name(),
         vocab.prompt().chars().count(),
         vocab.rule_count()
     );
-    let api_key = config.api.resolve_api_key(std::env::var(API_KEY_ENV).ok());
-    let backend = make_backend(&config, api_key.as_deref())?;
+    let (backend, api_key) = make_backend(&config)?;
     let needs_key = backend.is_none();
 
     let status = Arc::new(Status::new(platform::current_thread_id()));
@@ -165,11 +165,22 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
-fn make_backend(config: &Config, api_key: Option<&str>) -> Result<Option<Arc<dyn Backend>>> {
-    Ok(match api_key {
-        Some(key) => Some(Arc::new(StandardBackend::new(&config.api, key.to_owned())?)),
-        None => None,
-    })
+type BackendAndKey = (Option<Arc<dyn Backend>>, Option<String>);
+
+/// Moteur du fournisseur actif, et sa clé. Aucun moteur si la clé manque
+/// (sauf serveur local, pour qui elle est facultative).
+fn make_backend(config: &Config) -> Result<BackendAndKey> {
+    let provider = config.provider();
+    let endpoint = config.endpoint(provider, config::process_env);
+    if provider.requires_key() && endpoint.api_key.is_none() {
+        return Ok((None, None));
+    }
+    let backend: Arc<dyn Backend> = Arc::new(StandardBackend::new(
+        &endpoint,
+        &config.api.language,
+        config.api.timeout_secs,
+    )?);
+    Ok((Some(backend), endpoint.api_key))
 }
 
 /// État du thread principal.
@@ -266,7 +277,7 @@ impl MainLoop {
         let shared = self.shared.read().expect("réglages");
         SettingsView::new(
             &shared.config,
-            shared.api_key.as_deref(),
+            config::process_env,
             platform::run_at_startup(),
         )
     }
@@ -393,9 +404,15 @@ impl MainLoop {
             self.indicator.set_enabled(*value);
         }
         let mut shared = self.shared.write().expect("réglages");
-        if matches!(change, Change::ApiKey { .. } | Change::Model { .. }) {
-            let api_key = config.api.resolve_api_key(std::env::var(API_KEY_ENV).ok());
-            shared.backend = make_backend(&config, api_key.as_deref())?;
+        if matches!(
+            change,
+            Change::Provider { .. }
+                | Change::ProviderKey { .. }
+                | Change::ProviderModel { .. }
+                | Change::ProviderUrl { .. }
+        ) {
+            let (backend, api_key) = make_backend(&config)?;
+            shared.backend = backend;
             shared.api_key = api_key;
         }
         shared.config = config;

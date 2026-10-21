@@ -10,7 +10,8 @@ pub const WINDOW: usize = 200;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EngineStats {
-    /// « Standard », « Realtime » ou « Repli » (realtime retombé en standard).
+    /// « Standard » / « Realtime » (OpenAI), « Repli » (realtime retombé en
+    /// standard), « Mistral » ou « Local ».
     pub engine: &'static str,
     pub count: usize,
     pub wait_mean_ms: u64,
@@ -39,6 +40,8 @@ fn parse_row(line: &str) -> Option<Row> {
         "standard" => "Standard",
         "realtime" => "Realtime",
         "realtime>standard" => "Repli",
+        "mistral" => "Mistral",
+        "local" => "Local",
         _ => return None,
     };
     Some(Row {
@@ -73,7 +76,7 @@ fn median(values: &mut [u64]) -> u64 {
 /// (seuls les moteurs utilisés apparaissent).
 pub fn compute(csv: &str) -> Vec<EngineStats> {
     let rows: Vec<Row> = csv.lines().skip(1).filter_map(parse_row).collect();
-    ["Standard", "Realtime", "Repli"]
+    ["Standard", "Realtime", "Repli", "Mistral", "Local"]
         .into_iter()
         .filter_map(|engine| {
             let mut recent: Vec<&Row> = rows

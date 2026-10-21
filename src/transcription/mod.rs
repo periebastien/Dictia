@@ -42,6 +42,13 @@ pub enum Progress<'a> {
     Delta(&'a str),
 }
 
+/// Aide donnée au modèle : contexte libre et termes du vocabulaire.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Guidance<'a> {
+    pub prompt: &'a str,
+    pub terms: &'a [String],
+}
+
 pub type ProgressFn<'a> = dyn FnMut(Progress<'_>) + Send + 'a;
 
 pub trait Backend: Send + Sync {
@@ -55,7 +62,7 @@ pub trait Backend: Send + Sync {
     fn transcribe<'a>(
         &'a self,
         audio: AudioPayload,
-        prompt: &'a str,
+        guidance: Guidance<'a>,
         progress: &'a mut ProgressFn<'_>,
     ) -> BoxFuture<'a, Result<String>>;
 }
