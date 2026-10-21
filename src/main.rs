@@ -15,6 +15,7 @@ mod config;
 mod hotkey;
 mod inject;
 mod metrics;
+mod overlay;
 mod platform;
 mod transcription;
 mod tray;
