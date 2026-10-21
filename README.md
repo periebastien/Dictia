@@ -182,6 +182,17 @@ Elle disparaît dès que le texte est tapé. Pour la masquer :
   mots-clés ; avec `gpt-4o-transcribe`, comme prompt. Si la session en direct
   échoue (réseau, modèle indisponible), la dictée est automatiquement
   retranscrite par le moteur standard : rien n'est perdu.
+- **Écrire pendant la dictée** (Realtime, activé par défaut) : le texte est
+  tapé mot par mot au fil de la transcription, dès qu'aucune touche Ctrl, Alt
+  ou Win n'est enfoncée (sinon Windows prendrait les lettres pour des
+  raccourcis). Le texte final, remplacements compris, corrige au besoin ce qui
+  a été tapé. Astuce : un raccourci « maintenir pour parler » sans Ctrl/Alt/Win
+  (par exemple **F9**) permet de voir le texte s'écrire pendant que vous
+  parlez.
+
+Réglages → **Performances** compare les moteurs : médiane, moyenne et 90e
+centile de l'attente (fin de l'enregistrement → texte tapé), calculés à partir
+de `latences.csv`.
 
 ### La fenêtre Dictia
 

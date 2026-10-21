@@ -90,6 +90,10 @@ select.field{width:auto;height:30px;padding:0 8px;font-size:12px}
 .notice{padding:10px 12px;border-radius:10px;background:rgba(124,131,255,0.12);border:1px solid rgba(124,131,255,0.35);font-size:12px;line-height:1.5}
 .toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);padding:6px 12px;border-radius:8px;background:#33333C;color:var(--text);font-size:12px;opacity:0;transition:opacity 200ms;pointer-events:none;max-width:320px;text-align:center}
 .toast.on{opacity:1}.toast.err{background:#7F1D1D}
+.perf{display:grid;grid-template-columns:minmax(0,1.3fr) repeat(4,minmax(0,1fr));gap:6px;align-items:center;min-height:34px;padding:4px 12px;font-size:12px;font-variant-numeric:tabular-nums}
+.perf span:not(:first-child){text-align:right}
+.perf.head{min-height:28px;font-size:11px;color:var(--muted)}
+.perf b{font-weight:600}
 .footer{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)}
 nav{height:64px;flex-shrink:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--line);background:#17171C}
 nav button{position:relative;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--muted);font-size:11px;font-weight:500}
@@ -182,6 +186,8 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       <div class="list">
         <div class="set"><div class="lbl"><span>Animation près du curseur</span><span>Écoute en rouge, transcription en orange</span></div>
           <button class="toggle" id="t-indicator" aria-label="Animation près du curseur" aria-pressed="false"><span></span></button></div>
+        <div class="set" id="row-live"><div class="lbl"><span>Écrire pendant la dictée</span><span>Realtime : mot par mot, quand Ctrl, Alt et Win sont relâchés</span></div>
+          <button class="toggle" id="t-live" aria-label="Écrire pendant la dictée" aria-pressed="false"><span></span></button></div>
         <div class="set"><div class="lbl"><label for="tail">Prolonger après relâchement</label><span>Ne coupe pas la fin des phrases</span></div>
           <select id="tail" class="field"></select></div>
         <div class="set"><div class="lbl"><span>Espace après le texte</span><span>Pour enchaîner les dictées</span></div>
@@ -194,6 +200,9 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
         <div class="set"><div class="lbl"><span>Couleur d'accent</span></div>
           <div class="swatches" id="swatches"></div></div>
       </div>
+      <div class="section">Performances</div>
+      <div class="list" id="perf"></div>
+      <p class="sub" style="line-height:1.5">Attente : de la fin de l'enregistrement (après l'éventuel prolongement) au texte entièrement tapé, sur les 200 dernières dictées de chaque moteur. « Repli » : dictées Realtime retranscrites par le moteur standard.</p>
       <div class="footer"><button class="link" id="open-folder">Ouvrir le dossier de configuration</button><span id="version"></span></div>
     </section>
   </main>
@@ -437,6 +446,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   }
   bindToggle('t-indicator', (on) => ({ cmd: 'change', change: { kind: 'indicator', value: on } }));
   bindToggle('t-space', (on) => ({ cmd: 'change', change: { kind: 'trailing_space', value: on } }));
+  bindToggle('t-live', (on) => ({ cmd: 'change', change: { kind: 'live_typing', value: on } }));
   bindToggle('t-startup', (on) => ({ cmd: 'startup', value: on }));
   $('model').addEventListener('change', (e) => send({ cmd: 'change', change: {
     kind: state.settings.engine === 'realtime' ? 'realtime_model' : 'model', value: e.target.value } }));
@@ -471,6 +481,8 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     $('key-notice').hidden = s.api_key_set;
     setToggle('t-indicator', s.indicator);
     setToggle('t-space', s.trailing_space);
+    setToggle('t-live', s.live_typing);
+    $('row-live').hidden = !realtime;
     setToggle('t-startup', s.start_with_windows);
     $('swatches').replaceChildren(...s.accents.map((a) => el('button', {
       class: 'swatch', style: 'background:' + a.hex, 'aria-label': a.name,
@@ -479,6 +491,25 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     })));
     $('version').textContent = 'Dictia ' + s.version;
     renderShortcuts();
+  }
+
+  // ---- performances ----
+  function secs(ms) { return ms == null ? '–' : (ms / 1000).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' s'; }
+  function renderStats(stats) {
+    const box = $('perf');
+    if (!stats || !stats.length) {
+      box.replaceChildren(el('div', { class: 'empty', text: 'Les mesures apparaîtront après vos premières dictées.' }));
+      return;
+    }
+    const head = el('div', { class: 'perf head' }, ['Moteur', 'Médiane', 'Moyenne', '90 %', 'Dictées'].map((t) => el('span', { text: t })));
+    box.replaceChildren(head, ...stats.map((s) => el('div', { class: 'perf', title:
+      '1er texte (médiane) : ' + secs(s.first_text_median_ms) + ' · parole (médiane) : ' + secs(s.speech_median_ms) }, [
+      el('b', { text: s.engine }),
+      el('span', { text: secs(s.wait_median_ms) }),
+      el('span', { text: secs(s.wait_mean_ms) }),
+      el('span', { text: secs(s.wait_p90_ms) }),
+      el('span', { text: String(s.count) })
+    ])));
   }
 
   // ---- messages venant de Dictia ----
@@ -490,12 +521,15 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
           state.vocab = msg.vocab;
           state.settings = msg.settings;
           setStatus(msg.status);
-          renderSettings(); renderVocab(); renderHistory();
+          renderSettings(); renderVocab(); renderHistory(); renderStats(msg.stats);
           if (msg.tab) showTab(msg.tab);
           break;
         case 'settings':
           state.settings = msg.settings;
           renderSettings();
+          break;
+        case 'stats':
+          renderStats(msg.stats);
           break;
         case 'vocab':
           state.vocab = msg.vocab;

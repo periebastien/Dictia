@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::{Config, ENGINE_REALTIME, ENGINE_STANDARD};
 use crate::history::Entry;
 use crate::settings::{mask_api_key, Change, VocabEdit, ACCENTS, MODELS, RELEASE_TAILS};
+use crate::stats::EngineStats;
 use crate::transcription::realtime;
 use crate::tray::TrayState;
 
@@ -88,6 +89,7 @@ pub struct SettingsView {
     pub push_to_talk: String,
     pub indicator: bool,
     pub trailing_space: bool,
+    pub live_typing: bool,
     pub release_tail_ms: u32,
     pub release_tails: Vec<u32>,
     pub start_with_windows: bool,
@@ -116,6 +118,7 @@ impl SettingsView {
             push_to_talk: config.hotkey.push_to_talk.clone(),
             indicator: config.indicator.enabled,
             trailing_space: config.inject.trailing_space,
+            live_typing: config.inject.live_typing,
             release_tail_ms: config.audio.release_tail_ms,
             release_tails: RELEASE_TAILS.to_vec(),
             start_with_windows,
@@ -148,7 +151,11 @@ pub enum Message {
         settings: SettingsView,
         vocab: VocabEdit,
         history: Vec<Entry>,
+        stats: Vec<EngineStats>,
         tab: Option<Tab>,
+    },
+    Stats {
+        stats: Vec<EngineStats>,
     },
     Settings {
         settings: SettingsView,
@@ -278,6 +285,7 @@ mod tests {
             "case 'history_add'",
             "case 'toast'",
             "case 'tab'",
+            "case 'stats'",
             "cmd: 'ready'",
             "cmd: 'drag'",
             "cmd: 'minimize'",
