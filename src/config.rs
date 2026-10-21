@@ -101,7 +101,7 @@ live_typing = true
 
 [indicator]
 # Animation à côté du curseur : point rouge et barres de volume pendant
-# l'écoute, points orange pendant la transcription.
+# l'écoute, points bleus pendant la transcription.
 enabled = true
 
 [ui]

@@ -2,7 +2,7 @@
 //!
 //! - **Écoute** : point rouge qui pulse et barres qui suivent le volume du
 //!   micro, pour voir que la voix est bien captée.
-//! - **Transcription** : trois points orange qui ondulent pendant
+//! - **Transcription** : trois points bleus qui ondulent pendant
 //!   l'interrogation de l'API.
 //!
 //! Le dessin est fait ici, en mémoire, sans dépendance système ; la fenêtre
@@ -42,7 +42,7 @@ pub fn level_from_rms(rms: f32) -> f32 {
 
 const BACKGROUND: [f32; 4] = [0.094, 0.094, 0.106, 0.9];
 const RED: [f32; 3] = [0.973, 0.443, 0.443];
-const ORANGE: [f32; 3] = [0.961, 0.620, 0.043];
+const BLUE: [f32; 3] = [0.376, 0.647, 0.980];
 const WHITE: [f32; 3] = [0.95, 0.95, 0.95];
 
 /// Taille en pixels physiques pour un facteur d'échelle d'écran.
@@ -96,7 +96,7 @@ pub fn render(animation: Animation, t: f32, level: f32, scale: f32) -> Vec<u8> {
                     .max(0.0);
                 let (cx, dy) = (18.0 + i as f32 * 12.0, -4.0 * wave);
                 let alpha = 0.7 + 0.3 * wave;
-                canvas.fill([ORANGE[0], ORANGE[1], ORANGE[2], alpha], |x, y| {
+                canvas.fill([BLUE[0], BLUE[1], BLUE[2], alpha], |x, y| {
                     dist(x, y, cx, cy + dy) <= 3.4
                 });
             }
@@ -262,8 +262,8 @@ mod tests {
         let thinking = render(Animation::Thinking, 0.2, 0.5, 1.0);
         assert_ne!(listening, thinking);
         assert_ne!(thinking, render(Animation::Thinking, 0.5, 0.5, 1.0));
-        // Transcription : orange, pas de rouge.
+        // Transcription : bleu, pas de rouge.
         let [b, g, r, _] = pixel(&render(Animation::Thinking, 0.0, 0.0, 1.0), 30, 13);
-        assert!(r > 150 && r > g && g > 2 * b, "{:?}", (r, g, b));
+        assert!(b > 150 && b > g && g > r, "{:?}", (r, g, b));
     }
 }
