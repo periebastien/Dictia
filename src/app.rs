@@ -339,6 +339,10 @@ impl Controller {
         lat.first_token = first_token;
         lat.done = stopped.elapsed();
 
+        if self.vocab.is_prompt_echo(&text) {
+            log::info!("transcription ignorée : le modèle a recopié le prompt (pas de parole ?)");
+            return Ok(());
+        }
         let text =
             inject::prepare_text(&self.vocab.apply(&text), self.config.inject.trailing_space);
         lat.chars = text.chars().count();

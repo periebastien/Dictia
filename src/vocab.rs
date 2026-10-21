@@ -107,6 +107,18 @@ impl Vocab {
         self.replacements.len()
     }
 
+    /// Détecte une « transcription » qui ne fait que recopier le prompt.
+    ///
+    /// Quand l'audio ne contient presque pas de parole, les modèles OpenAI
+    /// renvoient souvent le prompt (contexte ou liste de termes) au lieu de
+    /// rien. Un texte d'au moins trois mots entièrement contenu dans le
+    /// prompt est donc écarté ; un terme isolé (« Dictia ») reste accepté.
+    pub fn is_prompt_echo(&self, text: &str) -> bool {
+        let text = normalize_words(text);
+        text.split(' ').filter(|w| !w.is_empty()).count() >= 3
+            && normalize_words(&self.prompt).contains(&text)
+    }
+
     /// Applique les remplacements, dans l'ordre du fichier.
     pub fn apply(&self, text: &str) -> String {
         let mut out = text.to_owned();
@@ -117,6 +129,15 @@ impl Vocab {
         }
         out
     }
+}
+
+/// Minuscules, mots séparés par une seule espace, ponctuation retirée.
+fn normalize_words(text: &str) -> String {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Contexte libre suivi de la liste des termes.
@@ -190,6 +211,19 @@ mod tests {
             "Dictée en français, avec une ponctuation soignée. Vocabulaire : Dictia, OpenAI."
         );
         assert_eq!(v.rule_count(), 0);
+    }
+
+    #[test]
+    fn detects_prompt_echo() {
+        let v = Vocab::parse(DEFAULT_VOCAB).unwrap();
+        assert!(v.is_prompt_echo("Dictée en français, avec une ponctuation soignée."));
+        assert!(v.is_prompt_echo("  dictée en français avec une ponctuation soignée "));
+        assert!(v.is_prompt_echo("Vocabulaire : Dictia, OpenAI."));
+        // Dictées réelles, même si elles reprennent un terme ou deux mots.
+        assert!(!v.is_prompt_echo("Dictia."));
+        assert!(!v.is_prompt_echo("En français."));
+        assert!(!v.is_prompt_echo("Dictée en français pour mon client."));
+        assert!(!v.is_prompt_echo(""));
     }
 
     #[test]
