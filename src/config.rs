@@ -256,13 +256,13 @@ impl Default for Config {
             api: ApiConfig::default(),
             mistral: ProviderConfig {
                 api_key: String::new(),
-                base_url: "https://api.mistral.ai/v1".into(),
-                model: "voxtral-mini-latest".into(),
+                base_url: Provider::Mistral.default_base_url().into(),
+                model: Provider::Mistral.default_model().into(),
             },
             local: ProviderConfig {
                 api_key: String::new(),
-                base_url: "http://localhost:8000/v1".into(),
-                model: "mistralai/Voxtral-Mini-4B-Realtime-2602".into(),
+                base_url: Provider::Local.default_base_url().into(),
+                model: Provider::Local.default_model().into(),
             },
             hotkey: HotkeyConfig::default(),
             audio: AudioConfig::default(),
@@ -353,6 +353,24 @@ impl Provider {
         }
     }
 
+    /// Adresse utilisée si aucune n'est renseignée.
+    pub fn default_base_url(self) -> &'static str {
+        match self {
+            Self::OpenAi => "https://api.openai.com/v1",
+            Self::Mistral => "https://api.mistral.ai/v1",
+            Self::Local => "http://localhost:8000/v1",
+        }
+    }
+
+    /// Modèle utilisé si aucun n'est renseigné.
+    pub fn default_model(self) -> &'static str {
+        match self {
+            Self::OpenAi => "gpt-4o-transcribe",
+            Self::Mistral => "voxtral-mini-latest",
+            Self::Local => "mistralai/Voxtral-Mini-4B-Realtime-2602",
+        }
+    }
+
     /// Seul OpenAI propose pour l'instant le moteur realtime de Dictia.
     pub fn supports_realtime(self) -> bool {
         self == Self::OpenAi
@@ -390,10 +408,15 @@ impl Config {
             .or_else(|| provider.key_env().and_then(&env))
             .map(|k| k.trim().to_owned())
             .filter(|k| !k.is_empty());
+        // Une section créée par l'interface peut ne contenir que la clé.
+        let or_default = |value: &str, default: &str| {
+            let value = value.trim();
+            if value.is_empty() { default } else { value }.to_owned()
+        };
         Endpoint {
             provider,
-            base_url: base_url.trim().to_owned(),
-            model: model.trim().to_owned(),
+            base_url: or_default(base_url, provider.default_base_url()),
+            model: or_default(model, provider.default_model()),
             api_key,
         }
     }
@@ -491,6 +514,17 @@ mod tests {
             cfg.endpoint(Provider::Local, |_| Some("x".into())).api_key,
             None
         );
+    }
+
+    #[test]
+    fn section_with_only_a_key_keeps_default_address_and_model() {
+        let cfg = Config::parse("[mistral]\napi_key = \"mk\"\n").unwrap();
+        let m = cfg.endpoint(Provider::Mistral, |_| None);
+        assert_eq!(m.base_url, "https://api.mistral.ai/v1");
+        assert_eq!(m.model, "voxtral-mini-latest");
+        assert_eq!(m.api_key.as_deref(), Some("mk"));
+        let l = cfg.endpoint(Provider::Local, |_| None);
+        assert_eq!(l.base_url, "http://localhost:8000/v1");
     }
 
     #[test]
