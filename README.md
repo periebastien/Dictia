@@ -19,14 +19,22 @@ l'apparition du texte. Le cahier des charges complet se trouve dans
 - remplacements personnalisés, puis frappe via `SendInput` (sans presse-papier) ;
 - icône dans la zone de notification (bleu : prêt, rouge : enregistrement,
   orange : transcription, gris : erreur) ;
-- journal des latences de chaque dictée.
+- journal des latences de chaque dictée ;
+- animation à côté du curseur pendant l'écoute et la transcription ;
+- fenêtre Dictia : historique, vocabulaire, raccourcis et réglages,
+  appliqués immédiatement sans relancer.
 
 ## Installation
 
 Téléchargez `dictia.exe` depuis l'onglet **Actions** du dépôt (artefact
 `dictia-<commit>` du dernier build), ou compilez-le vous-même. Aucun
-installeur : lancez l'exécutable. Pour le démarrer avec Windows, placez un
-raccourci dans `shell:startup`.
+installeur : lancez l'exécutable. Pour le démarrer avec Windows, activez
+**Réglages → Lancer au démarrage**.
+
+La fenêtre utilise Microsoft Edge WebView2, déjà présent sur Windows 10 et 11
+à jour. L'exécutable de la CI (MSVC) l'embarque entièrement ; une compilation
+croisée `x86_64-pc-windows-gnu` a besoin du fichier `WebView2Loader.dll`
+(fourni par la crate `webview2-com-sys`, dossier `x64`) à côté de `dictia.exe`.
 
 ## Compilation
 
@@ -60,9 +68,13 @@ pull request, puis publie `dictia.exe` en artefact.
 
 ## Configuration
 
+Le plus simple est la fenêtre de Dictia (clic sur l'icône) : tout ce qui s'y
+règle est enregistré dans les fichiers ci-dessous, en conservant leurs
+commentaires, et appliqué immédiatement.
+
 Au premier lancement, Dictia crée deux fichiers commentés dans
-`%APPDATA%\Dictia\` (menu de l'icône → **Ouvrir le dossier de
-configuration**). Relancez Dictia après toute modification.
+`%APPDATA%\Dictia\` (Réglages → **Ouvrir le dossier de configuration**).
+Après une modification à la main, relancez Dictia.
 
 ### `config.toml`
 
@@ -120,6 +132,8 @@ to = "\n"                # tapé comme la touche Entrée
 |-----------------|---------|
 | `dictia.log`    | Journal (démarrage, erreurs, latences). `DICTIA_LOG=debug` pour plus de détails. |
 | `latences.csv`  | Une ligne par dictée : encodage, upload, premier token, fin, frappe, total. |
+| `historique.jsonl` | Historique des dictées (texte, heure, application, durée, mode). |
+| `webview\`     | Données de la fenêtre (WebView2). |
 
 La variable `DICTIA_CONFIG_DIR` permet d'utiliser un autre dossier de
 configuration.
@@ -127,7 +141,9 @@ configuration.
 ## Utilisation
 
 1. Lancez `dictia.exe` : une pastille bleue avec un micro apparaît dans la zone
-   de notification.
+   de notification. Un clic dessus ouvre la fenêtre Dictia ; relancer
+   `dictia.exe` alors qu'il tourne déjà l'ouvre aussi. Sans clé API, la
+   fenêtre s'ouvre directement sur les Réglages.
 2. Placez le curseur là où le texte doit aller.
 3. Deux façons de dicter :
    - **mode bascule** : **Ctrl+Alt+Espace** (l'icône devient rouge), parlez,
@@ -146,9 +162,20 @@ la dictée :
 Elle disparaît dès que le texte est tapé. Pour la masquer :
 `[indicator] enabled = false`.
 
-Les deux raccourcis se règlent dans `config.toml` (`shortcut` et
-`push_to_talk`) ; laissez `push_to_talk = ""` pour n'utiliser que le mode
-bascule.
+### La fenêtre Dictia
+
+- **Historique** : vos dictées, avec recherche, filtres, bouton *Copier* et
+  bouton *Réinsérer au curseur* (la fenêtre se retire et le texte est tapé
+  dans l'application précédente).
+- **Vocabulaire** : termes envoyés au modèle et remplacements appliqués au
+  texte.
+- **Raccourcis** : cliquez sur un raccourci et tapez la nouvelle combinaison ;
+  le mode « maintenir pour parler » peut être désactivé.
+- **Réglages** : modèle, clé API, animation, espace après le texte, lancement
+  au démarrage, couleur d'accent.
+
+Fermer la fenêtre la libère entièrement : Dictia continue de tourner dans la
+zone de notification.
 
 En cas d'erreur (réseau, clé invalide, micro), un son système retentit,
 l'icône devient grise et le détail est écrit dans `dictia.log`.
