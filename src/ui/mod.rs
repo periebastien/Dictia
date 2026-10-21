@@ -96,6 +96,10 @@ pub struct SettingsView {
     pub live_typing: bool,
     pub release_tail_ms: u32,
     pub release_tails: Vec<u32>,
+    /// Micro choisi (vide : celui de Windows) et micros branchés.
+    pub microphone: String,
+    pub microphones: Vec<String>,
+    pub keep_mic_open: bool,
     pub start_with_windows: bool,
     pub accent: String,
     pub accents: Vec<AccentView>,
@@ -147,6 +151,7 @@ impl SettingsView {
         config: &Config,
         env: impl Fn(&str) -> Option<String>,
         start_with_windows: bool,
+        microphones: &[String],
     ) -> Self {
         const NAMES: [&str; 4] = ["Indigo", "Bleu ciel", "Vert", "Ambre"];
         let providers = Provider::ALL
@@ -190,6 +195,17 @@ impl SettingsView {
             live_typing: config.inject.live_typing,
             release_tail_ms: config.audio.release_tail_ms,
             release_tails: RELEASE_TAILS.to_vec(),
+            microphone: config.audio.device.clone(),
+            microphones: {
+                // Un micro choisi mais débranché reste affiché.
+                let mut list = microphones.to_vec();
+                let device = &config.audio.device;
+                if !device.is_empty() && !list.contains(device) {
+                    list.push(device.clone());
+                }
+                list
+            },
+            keep_mic_open: config.audio.keep_mic_open,
             start_with_windows,
             accent: config.ui.accent.clone(),
             accents: ACCENTS
@@ -320,7 +336,7 @@ mod tests {
         let mut config = Config::default();
         config.mistral.api_key = "mk-secret-mistral-9876".into();
         let env = |name: &str| (name == "OPENAI_API_KEY").then(|| "sk-proj-secret1234".to_owned());
-        let view = SettingsView::new(&config, env, true);
+        let view = SettingsView::new(&config, env, true, &[]);
         let json = serde_json::to_string(&view).unwrap();
         assert!(!json.contains("secret"), "{json}");
         assert_eq!(view.provider, "openai");
@@ -334,19 +350,36 @@ mod tests {
         assert_eq!(view.release_tail_ms, 300);
         assert_eq!(view.engine, "standard");
         assert_eq!(view.realtime_model, "gpt-live-transcribe");
-        assert!(!SettingsView::new(&Config::default(), |_| None, false).providers[0].api_key_set);
+        assert!(
+            !SettingsView::new(&Config::default(), |_| None, false, &[]).providers[0].api_key_set
+        );
+    }
+
+    #[test]
+    fn settings_view_keeps_an_unplugged_microphone() {
+        let mut config = Config::default();
+        let plugged = ["Micro (Realtek)".to_owned()];
+        let view = SettingsView::new(&config, |_| None, false, &plugged);
+        assert_eq!(view.microphone, "");
+        assert_eq!(view.microphones, plugged);
+        assert!(!view.keep_mic_open);
+        config.audio.device = "Casque Bluetooth".into();
+        config.audio.keep_mic_open = true;
+        let view = SettingsView::new(&config, |_| None, false, &plugged);
+        assert_eq!(view.microphones, ["Micro (Realtek)", "Casque Bluetooth"]);
+        assert!(view.keep_mic_open);
     }
 
     #[test]
     fn settings_view_lists_languages() {
         let mut config = Config::default();
-        let view = SettingsView::new(&config, |_| None, false);
+        let view = SettingsView::new(&config, |_| None, false, &[]);
         assert_eq!(view.language, "fr");
         assert_eq!(view.languages[0].code, "auto");
         assert_eq!(view.languages.len(), crate::settings::LANGUAGES.len());
         for (value, shown) in [("", "auto"), ("Auto", "auto"), ("SV", "sv")] {
             config.api.language = value.into();
-            let view = SettingsView::new(&config, |_| None, false);
+            let view = SettingsView::new(&config, |_| None, false, &[]);
             assert_eq!(view.language, shown);
             assert!(view.languages.iter().any(|l| l.code == shown));
         }

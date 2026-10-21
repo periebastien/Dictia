@@ -9,7 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use tokio::sync::{mpsc, Mutex};
 
-use crate::audio::capture::Recorder;
+use crate::audio::capture::Microphone;
 use crate::audio::{duration_of, flac, vad, TARGET_RATE};
 use crate::config::Config;
 use crate::dictation::{self, Effect, Phase};
@@ -115,7 +115,7 @@ impl Status {
 
 /// Enregistrement en cours.
 struct Session {
-    recorder: Recorder,
+    mic: Arc<Microphone>,
     target: Option<WindowHandle>,
     started: Instant,
     mode: &'static str,
@@ -256,6 +256,9 @@ pub struct Controller {
     pub inject_lock: Arc<Mutex<()>>,
     pub metrics_path: PathBuf,
     pub history_path: PathBuf,
+    /// Micro gardé ouvert entre les dictées (réglage « Laisser le micro
+    /// ouvert ») ; vide sinon.
+    pub kept_mic: Arc<std::sync::Mutex<Option<Arc<Microphone>>>>,
 }
 
 impl Controller {
@@ -329,6 +332,64 @@ impl Controller {
         Some((backend, realtime))
     }
 
+    /// Ouvre un micro ; ses erreurs n'interrompent que la dictée en cours.
+    fn open_microphone(&self, device: &str) -> Result<Microphone> {
+        let status = Arc::clone(&self.status);
+        Microphone::open(device, Arc::clone(&self.status.mic_level), move |e| {
+            if status.recording.swap(false, Ordering::SeqCst) {
+                status.fail("micro", &e);
+            } else {
+                log::warn!("micro : {e}");
+            }
+        })
+    }
+
+    /// Micro de la dictée : celui gardé ouvert s'il est prêt, sinon un
+    /// nouveau (gardé ouvert ensuite si le réglage le demande).
+    fn microphone(&self) -> Result<Arc<Microphone>> {
+        let (device, keep) = self.mic_settings();
+        let mut kept = self
+            .kept_mic
+            .lock()
+            .map_err(|_| anyhow::anyhow!("micro indisponible"))?;
+        if let Some(mic) = kept.as_ref() {
+            if keep && mic.is_alive() && mic.device() == device {
+                return Ok(Arc::clone(mic));
+            }
+        }
+        let mic = Arc::new(self.open_microphone(&device)?);
+        *kept = keep.then(|| Arc::clone(&mic));
+        Ok(mic)
+    }
+
+    /// Ouvre, rouvre ou ferme le micro gardé ouvert selon les réglages.
+    pub fn sync_microphone(&self) {
+        let (device, keep) = self.mic_settings();
+        let Ok(mut kept) = self.kept_mic.lock() else {
+            return;
+        };
+        let ready = kept
+            .as_ref()
+            .is_some_and(|m| m.is_alive() && m.device() == device);
+        if !keep {
+            *kept = None;
+        } else if !ready {
+            *kept = match self.open_microphone(&device) {
+                Ok(mic) => Some(Arc::new(mic)),
+                Err(e) => {
+                    log::warn!("micro : {e:#}");
+                    None
+                }
+            };
+        }
+    }
+
+    fn mic_settings(&self) -> (String, bool) {
+        self.shared.read().map_or((String::new(), false), |s| {
+            (s.config.audio.device.clone(), s.config.audio.keep_mic_open)
+        })
+    }
+
     /// Début : mémorise la fenêtre, ouvre le micro et la connexion (session
     /// en direct ou préchauffage du moteur standard).
     fn start(&self, mode: &'static str) -> Option<Session> {
@@ -355,12 +416,9 @@ impl Controller {
             }
         };
 
-        let status = Arc::clone(&self.status);
-        match Recorder::start(Arc::clone(&self.status.mic_level), live_audio, move |e| {
-            status.recording.store(false, Ordering::SeqCst);
-            status.fail("micro", &e);
-        }) {
-            Ok(recorder) => {
+        match self.microphone() {
+            Ok(mic) => {
+                mic.begin(live_audio);
                 self.status.set_recording(true);
                 log::info!(
                     "enregistrement démarré ({mode}, moteur {})",
@@ -371,7 +429,7 @@ impl Controller {
                     }
                 );
                 Some(Session {
-                    recorder,
+                    mic,
                     target,
                     started,
                     mode,
@@ -394,11 +452,17 @@ impl Controller {
         let stopped = Instant::now();
         let recording = session.started.elapsed();
         self.status.set_recording(false);
-        let samples = match session.recorder.stop() {
+        let samples = session.mic.end();
+        // Micro ouvert pour cette seule dictée : il est fermé ici.
+        drop(session.mic);
+        let samples = match samples {
             Ok(s) => s,
             Err(e) => {
-                // Déjà signalé par le rappel d'erreur du micro.
-                log::warn!("aucun audio : {e:#}");
+                // Signalé par le rappel d'erreur du micro, sauf s'il a échoué
+                // avant le début de l'enregistrement.
+                if !self.status.error.load(Ordering::SeqCst) {
+                    self.status.fail("micro", &format!("{e:#}"));
+                }
                 if let Some(live) = session.live {
                     live.task.abort();
                 }

@@ -106,6 +106,13 @@ pub enum Change {
     ReleaseTail {
         value: u32,
     },
+    /// Nom du micro ; vide : micro de Windows.
+    Microphone {
+        value: String,
+    },
+    KeepMicOpen {
+        value: bool,
+    },
     Accent {
         value: String,
     },
@@ -225,6 +232,8 @@ pub fn apply_config_change(text: &str, current: &Config, change: &Change) -> Res
             }
             table(&mut doc, "audio")["release_tail_ms"] = value(i64::from(*v));
         }
+        Change::Microphone { value: v } => table(&mut doc, "audio")["device"] = value(v.trim()),
+        Change::KeepMicOpen { value: v } => table(&mut doc, "audio")["keep_mic_open"] = value(*v),
         Change::Accent { value: v } => {
             if !ACCENTS.iter().any(|a| a.eq_ignore_ascii_case(v)) {
                 bail!("couleur inconnue : {v}");
@@ -416,6 +425,24 @@ mod tests {
                 .push_to_talk,
             ""
         );
+    }
+
+    #[test]
+    fn microphone_changes() {
+        let cfg = apply(Change::Microphone {
+            value: " Micro (Jabra Evolve2) ".into(),
+        })
+        .unwrap();
+        assert_eq!(cfg.audio.device, "Micro (Jabra Evolve2)");
+        assert!(!cfg.audio.keep_mic_open);
+        assert!(
+            apply(Change::KeepMicOpen { value: true })
+                .unwrap()
+                .audio
+                .keep_mic_open
+        );
+        let back = apply(Change::Microphone { value: "".into() }).unwrap();
+        assert_eq!(back.audio.device, "");
     }
 
     #[test]

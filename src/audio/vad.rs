@@ -58,6 +58,7 @@ mod tests {
             padding_ms: 100,
             min_speech_ms: 100,
             release_tail_ms: 0,
+            ..Default::default()
         }
     }
 
