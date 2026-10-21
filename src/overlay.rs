@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn premultiplied_alpha_is_consistent() {
         let img = render(Animation::Thinking, 0.3, 0.0, 1.0);
-        for p in img.chunks_exact(4) {
+        for p in img.as_chunks::<4>().0 {
             assert!(p[0] <= p[3] && p[1] <= p[3] && p[2] <= p[3], "{p:?}");
         }
     }
