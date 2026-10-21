@@ -18,7 +18,7 @@ const DIR_ENV: &str = "DICTIA_CONFIG_DIR";
 
 /// Contenu écrit dans `config.toml` au premier lancement.
 /// Doit rester synchronisé avec les `Default` ci-dessous (vérifié par un test).
-pub const DEFAULT_CONFIG: &str = r#"# Configuration de Dictia
+pub const DEFAULT_CONFIG: &str = r##"# Configuration de Dictia
 # Fichier créé automatiquement au premier lancement.
 # Relancez Dictia après toute modification.
 
@@ -64,7 +64,11 @@ trailing_space = true
 # Animation à côté du curseur : point rouge et barres de volume pendant
 # l'écoute, points orange pendant la transcription.
 enabled = true
-"#;
+
+[ui]
+# Couleur d'accent de la fenêtre Dictia.
+accent = "#7C83FF"
+"##;
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
@@ -74,6 +78,21 @@ pub struct Config {
     pub audio: AudioConfig,
     pub inject: InjectConfig,
     pub indicator: IndicatorConfig,
+    pub ui: UiConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct UiConfig {
+    pub accent: String,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            accent: "#7C83FF".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
