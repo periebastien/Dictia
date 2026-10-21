@@ -31,10 +31,10 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, CreateWindowExW, DefWindowProcW, DestroyWindow, FindWindowW,
-    GetCursorPos, GetWindowThreadProcessId, PostMessageW, RegisterClassW, SetForegroundWindow,
-    ShowWindow, SystemParametersInfoW, HTCAPTION, SPI_GETWORKAREA, SW_HIDE, SW_MINIMIZE,
-    SW_RESTORE, SW_SHOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_APP, WM_CLOSE, WM_NCLBUTTONDOWN,
-    WNDCLASSW, WS_EX_APPWINDOW, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
+    GetCursorPos, GetWindowThreadProcessId, LoadIconW, PostMessageW, RegisterClassW,
+    SetForegroundWindow, ShowWindow, SystemParametersInfoW, HTCAPTION, SPI_GETWORKAREA, SW_HIDE,
+    SW_MINIMIZE, SW_RESTORE, SW_SHOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_APP, WM_CLOSE,
+    WM_NCLBUTTONDOWN, WNDCLASSW, WS_EX_APPWINDOW, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
 };
 
 use super::WindowHandle;
@@ -120,9 +120,13 @@ fn register_class(
     proc_: windows::Win32::UI::WindowsAndMessaging::WNDPROC,
 ) -> Result<HINSTANCE> {
     let hinstance = instance()?;
+    // Icône de l'exécutable (ressource 1, voir build.rs) : barre des tâches.
+    let icon = unsafe { LoadIconW(Some(hinstance), PCWSTR(std::ptr::without_provenance(1))) }
+        .unwrap_or_default();
     let wc = WNDCLASSW {
         lpfnWndProc: proc_,
         hInstance: hinstance,
+        hIcon: icon,
         lpszClassName: name,
         ..Default::default()
     };

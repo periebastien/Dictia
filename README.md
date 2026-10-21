@@ -56,6 +56,9 @@ cargo clippy --target x86_64-pc-windows-gnu -- -D warnings
 cargo build  --release --target x86_64-pc-windows-gnu
 ```
 
+L'icône de l'exécutable (`assets/dictia.ico`) est intégrée par `build.rs`.
+Pour la redessiner : `python3 assets/generate_icon.py` (Pillow requis).
+
 Tests (logique métier, sous Linux comme sous Windows) :
 
 ```bash

@@ -20,6 +20,9 @@ tokio = { version = "1.54.0", features = ["rt-multi-thread", "macros", "sync", "
 toml = "1.1.8"
 toml_edit = "0.25.17"
 
+[build-dependencies]
+winresource = "0.1.34"
+
 [dev-dependencies]
 tokio = { version = "1.54.0", features = ["net", "io-util"] }
 
