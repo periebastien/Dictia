@@ -4,6 +4,7 @@
 //! toutes les plateformes). Chaque bloc reçu est converti à la volée en mono
 //! 16 kHz : à l'arrêt, l'audio est immédiatement prêt pour la VAD.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -12,6 +13,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 
 use super::resample::{downmix, StreamResampler};
+use super::vad::rms;
 use super::TARGET_RATE;
 
 type ErrorCallback = Arc<dyn Fn(String) + Send + Sync>;
@@ -25,14 +27,18 @@ pub struct Recorder {
 impl Recorder {
     /// Démarre la capture sans bloquer l'appelant ; `on_error` est appelé
     /// depuis le thread audio si le micro ne peut pas être ouvert ou décroche.
-    pub fn start(on_error: impl Fn(String) + Send + Sync + 'static) -> Result<Self> {
+    /// `level` reçoit en continu le volume RMS du dernier bloc (bits d'un `f32`).
+    pub fn start(
+        level: Arc<AtomicU32>,
+        on_error: impl Fn(String) + Send + Sync + 'static,
+    ) -> Result<Self> {
         let on_error: ErrorCallback = Arc::new(on_error);
         let (stop_tx, stop_rx) = mpsc::channel();
         let handle = thread::Builder::new()
             .name("dictia-audio".into())
             .spawn(move || {
                 let buffer = Arc::new(Mutex::new(Vec::with_capacity(TARGET_RATE as usize * 30)));
-                let stream = match open_stream(Arc::clone(&buffer), Arc::clone(&on_error)) {
+                let stream = match open_stream(Arc::clone(&buffer), level, Arc::clone(&on_error)) {
                     Ok(s) => s,
                     Err(e) => {
                         on_error(format!("{e:#}"));
@@ -61,7 +67,11 @@ impl Recorder {
     }
 }
 
-fn open_stream(buffer: Arc<Mutex<Vec<f32>>>, on_error: ErrorCallback) -> Result<Stream> {
+fn open_stream(
+    buffer: Arc<Mutex<Vec<f32>>>,
+    level: Arc<AtomicU32>,
+    on_error: ErrorCallback,
+) -> Result<Stream> {
     let host = cpal::default_host();
     let device = host
         .default_input_device()
@@ -81,13 +91,13 @@ fn open_stream(buffer: Arc<Mutex<Vec<f32>>>, on_error: ErrorCallback) -> Result<
     }
 
     let stream = match format {
-        SampleFormat::F32 => build::<f32>(&device, config, buffer, on_error),
-        SampleFormat::I16 => build::<i16>(&device, config, buffer, on_error),
-        SampleFormat::U16 => build::<u16>(&device, config, buffer, on_error),
-        SampleFormat::I32 => build::<i32>(&device, config, buffer, on_error),
-        SampleFormat::I8 => build::<i8>(&device, config, buffer, on_error),
-        SampleFormat::U8 => build::<u8>(&device, config, buffer, on_error),
-        SampleFormat::F64 => build::<f64>(&device, config, buffer, on_error),
+        SampleFormat::F32 => build::<f32>(&device, config, buffer, level, on_error),
+        SampleFormat::I16 => build::<i16>(&device, config, buffer, level, on_error),
+        SampleFormat::U16 => build::<u16>(&device, config, buffer, level, on_error),
+        SampleFormat::I32 => build::<i32>(&device, config, buffer, level, on_error),
+        SampleFormat::I8 => build::<i8>(&device, config, buffer, level, on_error),
+        SampleFormat::U8 => build::<u8>(&device, config, buffer, level, on_error),
+        SampleFormat::F64 => build::<f64>(&device, config, buffer, level, on_error),
         other => return Err(anyhow!("format audio non pris en charge : {other:?}")),
     }?;
     stream.play().context("démarrage du micro")?;
@@ -98,6 +108,7 @@ fn build<T>(
     device: &cpal::Device,
     config: StreamConfig,
     buffer: Arc<Mutex<Vec<f32>>>,
+    level: Arc<AtomicU32>,
     on_error: ErrorCallback,
 ) -> Result<Stream>
 where
@@ -113,6 +124,7 @@ where
             move |data: &[T], _| {
                 scratch.clear();
                 scratch.extend(data.iter().map(|&x| x.to_sample::<f32>()));
+                level.store(rms(&scratch).to_bits(), Ordering::Relaxed);
                 if let Ok(mut out) = buffer.lock() {
                     downmix(&scratch, channels, |x| resampler.push(x, &mut out));
                 }

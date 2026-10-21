@@ -85,6 +85,9 @@ min_speech_ms = 200                   # en dessous : rien n'est envoyé
 
 [inject]
 trailing_space = true                 # espace après le texte tapé
+
+[indicator]
+enabled = true                        # animation à côté du curseur
 ```
 
 **Clé API** : renseignez `api_key`, ou laissez-le vide et définissez la
@@ -133,6 +136,15 @@ configuration.
      vous parlez, relâchez quand vous avez fini.
 4. L'icône devient orange, puis le texte est tapé dans la fenêtre d'origine,
    même si vous en avez changé entre-temps.
+
+Une petite pastille suit le curseur de texte (ou, à défaut, la souris) pendant
+la dictée :
+- **à l'écoute** : un point rouge qui pulse et des barres qui bougent avec
+  votre voix ; si les barres restent plates, le micro ne vous entend pas ;
+- **transcription en cours** : trois points orange qui ondulent.
+
+Elle disparaît dès que le texte est tapé. Pour la masquer :
+`[indicator] enabled = false`.
 
 Les deux raccourcis se règlent dans `config.toml` (`shortcut` et
 `push_to_talk`) ; laissez `push_to_talk = ""` pour n'utiliser que le mode

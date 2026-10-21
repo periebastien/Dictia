@@ -59,6 +59,11 @@ min_speech_ms = 200
 [inject]
 # Ajoute une espace après le texte tapé, pour enchaîner les dictées.
 trailing_space = true
+
+[indicator]
+# Animation à côté du curseur : point rouge et barres de volume pendant
+# l'écoute, points orange pendant la transcription.
+enabled = true
 "#;
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -68,6 +73,19 @@ pub struct Config {
     pub hotkey: HotkeyConfig,
     pub audio: AudioConfig,
     pub inject: InjectConfig,
+    pub indicator: IndicatorConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct IndicatorConfig {
+    pub enabled: bool,
+}
+
+impl Default for IndicatorConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 #[derive(Clone, PartialEq, Deserialize)]

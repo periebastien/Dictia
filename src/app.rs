@@ -6,7 +6,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -23,7 +23,8 @@ use crate::config::{self, Config, API_KEY_ENV, CONFIG_FILE};
 use crate::hotkey::{self, Action};
 use crate::inject;
 use crate::metrics::{Latencies, METRICS_FILE};
-use crate::platform::{self, WindowHandle};
+use crate::overlay::{self, Animation};
+use crate::platform::{self, OverlayWindow, WindowHandle};
 use crate::transcription::standard::StandardBackend;
 use crate::transcription::{AudioPayload, Backend, Progress};
 use crate::tray::{Tray, TrayState, MENU_OPEN_CONFIG, MENU_QUIT};
@@ -105,6 +106,7 @@ pub fn run() -> Result<()> {
     };
     log::info!("prêt : {shortcuts} pour dicter");
 
+    let indicator_enabled = config.indicator.enabled;
     let controller = Controller {
         backend,
         vocab: Arc::new(vocab),
@@ -115,7 +117,12 @@ pub fn run() -> Result<()> {
     };
     runtime.spawn(controller.run(rx));
 
-    platform::run_message_loop(|| tray.set_state(status.get()));
+    let mut indicator = Indicator::new(indicator_enabled);
+    platform::run_message_loop(|| {
+        let state = status.get();
+        tray.set_state(state);
+        indicator.update(Animation::for_state(state), status.mic_rms());
+    });
 
     log::info!("arrêt de Dictia");
     runtime.shutdown_timeout(Duration::from_millis(500));
@@ -125,6 +132,8 @@ pub fn run() -> Result<()> {
 /// État partagé, lu par la boucle principale pour mettre à jour l'icône.
 struct Status {
     main_thread: u32,
+    /// Volume RMS du micro (bits d'un `f32`), écrit par le thread audio.
+    mic_level: Arc<AtomicU32>,
     recording: AtomicBool,
     processing: AtomicUsize,
     error: AtomicBool,
@@ -134,6 +143,7 @@ impl Status {
     fn new(main_thread: u32) -> Self {
         Self {
             main_thread,
+            mic_level: Arc::new(AtomicU32::new(0)),
             recording: AtomicBool::new(false),
             processing: AtomicUsize::new(0),
             error: AtomicBool::new(false),
@@ -152,6 +162,10 @@ impl Status {
         }
     }
 
+    fn mic_rms(&self) -> f32 {
+        f32::from_bits(self.mic_level.load(Ordering::Relaxed))
+    }
+
     fn notify(&self) {
         platform::post_wake(self.main_thread);
     }
@@ -161,6 +175,9 @@ impl Status {
             self.error.store(false, Ordering::SeqCst);
         }
         self.recording.store(on, Ordering::SeqCst);
+        if !on {
+            self.mic_level.store(0, Ordering::Relaxed);
+        }
         self.notify();
     }
 
@@ -179,6 +196,60 @@ impl Status {
         self.error.store(true, Ordering::SeqCst);
         platform::beep_error();
         self.notify();
+    }
+}
+
+/// Animation affichée à côté du curseur (thread principal uniquement).
+struct Indicator {
+    window: Option<OverlayWindow>,
+    shown: Option<Animation>,
+    since: Instant,
+    level: f32,
+}
+
+impl Indicator {
+    fn new(enabled: bool) -> Self {
+        let window = enabled
+            .then(|| OverlayWindow::new(overlay::WIDTH, overlay::HEIGHT))
+            .and_then(|w| {
+                w.map_err(|e| log::warn!("indicateur indisponible : {e}"))
+                    .ok()
+            });
+        Self {
+            window,
+            shown: None,
+            since: Instant::now(),
+            level: 0.0,
+        }
+    }
+
+    fn update(&mut self, animation: Option<Animation>, mic_rms: f32) {
+        let Some(window) = &mut self.window else {
+            return;
+        };
+        let Some(animation) = animation else {
+            if self.shown.take().is_some() {
+                window.set_animating(false, overlay::FRAME_MS);
+                window.hide();
+            }
+            return;
+        };
+        if self.shown != Some(animation) {
+            self.shown = Some(animation);
+            self.since = Instant::now();
+            self.level = 0.0;
+            window.set_animating(true, overlay::FRAME_MS);
+        }
+        // Montée immédiate, descente douce : les barres restent lisibles.
+        let target = overlay::level_from_rms(mic_rms);
+        self.level = if target > self.level {
+            target
+        } else {
+            self.level * 0.85 + target * 0.15
+        };
+        let image = overlay::render(animation, self.since.elapsed().as_secs_f32(), self.level);
+        let (x, y) = platform::text_cursor_or_pointer();
+        window.show(x + overlay::OFFSET.0, y + overlay::OFFSET.1, &image);
     }
 }
 
@@ -235,7 +306,7 @@ impl Controller {
         tokio::spawn(async move { backend.warm_up().await });
 
         let status = Arc::clone(&self.status);
-        match Recorder::start(move |e| {
+        match Recorder::start(Arc::clone(&self.status.mic_level), move |e| {
             status.recording.store(false, Ordering::SeqCst);
             status.fail("micro", &e);
         }) {

@@ -1,15 +1,22 @@
 //! Win32 : fenêtre active, injection clavier, boucle de messages, instance
-//! unique et boîtes de dialogue.
+//! unique, boîtes de dialogue et fenêtre transparente de l'indicateur.
 
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Result};
-use windows::core::{HSTRING, PCWSTR};
+use windows::core::{w, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, HWND, LPARAM, WPARAM,
+    CloseHandle, GetLastError, COLORREF, ERROR_ALREADY_EXISTS, HANDLE, HINSTANCE, HWND, LPARAM,
+    LRESULT, POINT, SIZE, WPARAM,
+};
+use windows::Win32::Graphics::Gdi::{
+    ClientToScreen, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
+    SelectObject, AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
+    DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ,
 };
 use windows::Win32::System::Diagnostics::Debug::MessageBeep;
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{AttachThreadInput, CreateMutexW, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
@@ -17,9 +24,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_RWIN, VK_SHIFT, VK_TAB,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, DispatchMessageW, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
-    IsIconic, IsWindow, MessageBoxW, PostThreadMessageW, SetForegroundWindow, ShowWindow,
-    TranslateMessage, MB_ICONERROR, MB_ICONWARNING, MB_OK, MSG, SW_RESTORE, WM_APP,
+    BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
+    GetCursorPos, GetForegroundWindow, GetGUIThreadInfo, GetMessageW, GetWindowThreadProcessId,
+    IsIconic, IsWindow, KillTimer, MessageBoxW, PostThreadMessageW, RegisterClassW,
+    SetForegroundWindow, SetTimer, ShowWindow, TranslateMessage, UpdateLayeredWindow,
+    GUITHREADINFO, MB_ICONERROR, MB_ICONWARNING, MB_OK, MSG, SW_HIDE, SW_RESTORE,
+    SW_SHOWNOACTIVATE, ULW_ALPHA, WM_APP, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
 use crate::inject::Keystroke;
@@ -228,4 +239,199 @@ pub fn show_warning(text: &str) {
 /// Son système d'erreur, pour signaler un échec sans fenêtre.
 pub fn beep_error() {
     let _ = unsafe { MessageBeep(MB_ICONERROR) };
+}
+
+/// Position du point d'insertion de texte de la fenêtre active (bas du
+/// curseur clignotant), ou à défaut celle du pointeur de la souris.
+/// Beaucoup d'applications (navigateurs, Electron) n'exposent pas leur
+/// point d'insertion : c'est alors la souris qui sert de repère.
+pub fn text_cursor_or_pointer() -> (i32, i32) {
+    unsafe {
+        let fg = GetForegroundWindow();
+        if !fg.is_invalid() {
+            let thread = GetWindowThreadProcessId(fg, None);
+            let mut info = GUITHREADINFO {
+                cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+                ..Default::default()
+            };
+            if thread != 0
+                && GetGUIThreadInfo(thread, &mut info).is_ok()
+                && !info.hwndCaret.is_invalid()
+            {
+                let mut pt = POINT {
+                    x: info.rcCaret.left,
+                    y: info.rcCaret.bottom,
+                };
+                if ClientToScreen(info.hwndCaret, &mut pt).as_bool() {
+                    return (pt.x, pt.y);
+                }
+            }
+        }
+        let mut pt = POINT::default();
+        let _ = GetCursorPos(&mut pt);
+        (pt.x, pt.y)
+    }
+}
+
+unsafe extern "system" fn overlay_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
+/// Petite fenêtre transparente, toujours au premier plan, qui laisse passer
+/// les clics et ne prend jamais le focus : idéale pour un indicateur.
+pub struct OverlayWindow {
+    hwnd: HWND,
+    mem_dc: HDC,
+    bitmap: HBITMAP,
+    old_bitmap: HGDIOBJ,
+    bits: *mut u8,
+    width: u32,
+    height: u32,
+    visible: bool,
+    animating: bool,
+}
+
+const OVERLAY_TIMER: usize = 1;
+
+impl OverlayWindow {
+    pub fn new(width: u32, height: u32) -> Result<Self> {
+        unsafe {
+            let instance: HINSTANCE = GetModuleHandleW(None)?.into();
+            let class = w!("DictiaOverlay");
+            let wc = WNDCLASSW {
+                lpfnWndProc: Some(overlay_proc),
+                hInstance: instance,
+                lpszClassName: class,
+                ..Default::default()
+            };
+            RegisterClassW(&wc);
+            let hwnd = CreateWindowExW(
+                WS_EX_LAYERED
+                    | WS_EX_TRANSPARENT
+                    | WS_EX_TOPMOST
+                    | WS_EX_TOOLWINDOW
+                    | WS_EX_NOACTIVATE,
+                class,
+                w!("Dictia"),
+                WS_POPUP,
+                0,
+                0,
+                width as i32,
+                height as i32,
+                None,
+                None,
+                Some(instance),
+                None,
+            )?;
+
+            let screen = GetDC(None);
+            let mem_dc = CreateCompatibleDC(Some(screen));
+            ReleaseDC(None, screen);
+            let info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: width as i32,
+                    biHeight: -(height as i32), // lignes de haut en bas
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut bits = std::ptr::null_mut();
+            let bitmap = CreateDIBSection(Some(mem_dc), &info, DIB_RGB_COLORS, &mut bits, None, 0)?;
+            let old_bitmap = SelectObject(mem_dc, bitmap.into());
+            Ok(Self {
+                hwnd,
+                mem_dc,
+                bitmap,
+                old_bitmap,
+                bits: bits.cast(),
+                width,
+                height,
+                visible: false,
+                animating: false,
+            })
+        }
+    }
+
+    /// Affiche `bgra` (BGRA prémultiplié, `width`×`height`) en (`x`, `y`).
+    pub fn show(&mut self, x: i32, y: i32, bgra: &[u8]) {
+        let len = (self.width * self.height * 4) as usize;
+        if bgra.len() != len {
+            return;
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(bgra.as_ptr(), self.bits, len);
+            let dst = POINT { x, y };
+            let size = SIZE {
+                cx: self.width as i32,
+                cy: self.height as i32,
+            };
+            let src = POINT::default();
+            let blend = BLENDFUNCTION {
+                BlendOp: AC_SRC_OVER as u8,
+                BlendFlags: 0,
+                SourceConstantAlpha: 255,
+                AlphaFormat: AC_SRC_ALPHA as u8,
+            };
+            let _ = UpdateLayeredWindow(
+                self.hwnd,
+                None,
+                Some(&dst),
+                Some(&size),
+                Some(self.mem_dc),
+                Some(&src),
+                COLORREF(0),
+                Some(&blend),
+                ULW_ALPHA,
+            );
+            if !self.visible {
+                let _ = ShowWindow(self.hwnd, SW_SHOWNOACTIVATE);
+                self.visible = true;
+            }
+        }
+    }
+
+    pub fn hide(&mut self) {
+        if self.visible {
+            unsafe {
+                let _ = ShowWindow(self.hwnd, SW_HIDE);
+            }
+            self.visible = false;
+        }
+    }
+
+    /// Réveille la boucle de messages toutes les `interval_ms` tant que
+    /// l'animation tourne.
+    pub fn set_animating(&mut self, on: bool, interval_ms: u32) {
+        if on == self.animating {
+            return;
+        }
+        unsafe {
+            if on {
+                SetTimer(Some(self.hwnd), OVERLAY_TIMER, interval_ms, None);
+            } else {
+                let _ = KillTimer(Some(self.hwnd), OVERLAY_TIMER);
+            }
+        }
+        self.animating = on;
+    }
+}
+
+impl Drop for OverlayWindow {
+    fn drop(&mut self) {
+        unsafe {
+            SelectObject(self.mem_dc, self.old_bitmap);
+            let _ = DeleteObject(self.bitmap.into());
+            let _ = DeleteDC(self.mem_dc);
+            let _ = DestroyWindow(self.hwnd);
+        }
+    }
 }
