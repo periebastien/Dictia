@@ -199,6 +199,8 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
         <div class="set"><div class="lbl"><label for="model">Modèle</label><span>Choisissez ou saisissez un nom</span></div>
           <input id="model" class="field" list="model-list" autocomplete="off" spellcheck="false" style="width:190px;height:30px;font-size:12px">
           <datalist id="model-list"></datalist></div>
+        <div class="set"><div class="lbl"><label for="language">Langue</label><span>Automatique : reconnue par le modèle</span></div>
+          <select id="language" class="field"></select></div>
         <div class="set"><div class="lbl"><label for="url">Adresse de l'API</label></div>
           <input id="url" class="field" autocomplete="off" spellcheck="false" style="width:190px;height:30px;font-size:12px"></div>
       </div>
@@ -503,6 +505,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     if (!b || b.dataset.engine === state.settings.engine) return;
     send({ cmd: 'change', change: { kind: 'engine', value: b.dataset.engine } });
   });
+  $('language').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'language', value: e.target.value } }));
   $('tail').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'release_tail', value: Number(e.target.value) } }));
   $('open-folder').addEventListener('click', () => send({ cmd: 'open_folder' }));
 
@@ -521,6 +524,8 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     $('url').value = p.base_url;
     $('url').disabled = realtime;
     renderKeys();
+    $('language').replaceChildren(...s.languages.map((l) => el('option', { value: l.code, text: l.name })));
+    $('language').value = s.language;
     $('tail').replaceChildren(...s.release_tails.map((ms) => el('option', { value: String(ms), text: ms ? ms + ' ms' : 'Non' })));
     $('tail').value = String(s.release_tail_ms);
     const missing = p.needs_key && !p.api_key_set;

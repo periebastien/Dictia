@@ -321,7 +321,7 @@ impl Controller {
                 url: realtime::endpoint(&api.base_url),
                 api_key,
                 model: api.realtime_model.clone(),
-                language: api.language.clone(),
+                language: api.language_code().to_owned(),
                 prompt: shared.vocab.prompt().to_owned(),
                 keywords: shared.vocab.terms().to_vec(),
                 timeout: Duration::from_secs(api.timeout_secs.max(1)),

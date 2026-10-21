@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{Config, Provider, ENGINE_REALTIME, ENGINE_STANDARD};
 use crate::history::Entry;
-use crate::settings::{mask_api_key, suggested_models, Change, VocabEdit, ACCENTS, RELEASE_TAILS};
+use crate::settings::{
+    mask_api_key, suggested_models, Change, VocabEdit, ACCENTS, LANGUAGES, RELEASE_TAILS,
+};
 use crate::stats::ModelStats;
 use crate::transcription::realtime;
 use crate::tray::TrayState;
@@ -84,6 +86,9 @@ pub struct SettingsView {
     pub engine: String,
     pub realtime_model: String,
     pub realtime_models: Vec<&'static str>,
+    /// Code de langue (`auto` compris) et choix proposés.
+    pub language: String,
+    pub languages: Vec<LanguageView>,
     pub shortcut: String,
     pub push_to_talk: String,
     pub indicator: bool,
@@ -95,6 +100,31 @@ pub struct SettingsView {
     pub accent: String,
     pub accents: Vec<AccentView>,
     pub version: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LanguageView {
+    pub code: String,
+    pub name: String,
+}
+
+/// Langues proposées ; un code saisi à la main dans `config.toml` est ajouté
+/// pour rester affiché.
+fn language_views(current: &str) -> Vec<LanguageView> {
+    let mut views: Vec<LanguageView> = LANGUAGES
+        .iter()
+        .map(|&(code, name)| LanguageView {
+            code: code.into(),
+            name: name.into(),
+        })
+        .collect();
+    if !views.iter().any(|v| v.code == current) {
+        views.push(LanguageView {
+            code: current.into(),
+            name: current.into(),
+        });
+    }
+    views
 }
 
 /// Réglages d'un fournisseur (jamais la clé entière).
@@ -136,6 +166,10 @@ impl SettingsView {
                 }
             })
             .collect();
+        let language = match config.api.language_code() {
+            "" => crate::config::LANGUAGE_AUTO.to_owned(),
+            code => code.to_ascii_lowercase(),
+        };
         Self {
             provider: config.provider().id(),
             providers,
@@ -147,6 +181,8 @@ impl SettingsView {
             .to_owned(),
             realtime_model: config.api.realtime_model.clone(),
             realtime_models: realtime::MODELS.to_vec(),
+            language: language.clone(),
+            languages: language_views(&language),
             shortcut: config.hotkey.shortcut.clone(),
             push_to_talk: config.hotkey.push_to_talk.clone(),
             indicator: config.indicator.enabled,
@@ -299,6 +335,21 @@ mod tests {
         assert_eq!(view.engine, "standard");
         assert_eq!(view.realtime_model, "gpt-live-transcribe");
         assert!(!SettingsView::new(&Config::default(), |_| None, false).providers[0].api_key_set);
+    }
+
+    #[test]
+    fn settings_view_lists_languages() {
+        let mut config = Config::default();
+        let view = SettingsView::new(&config, |_| None, false);
+        assert_eq!(view.language, "fr");
+        assert_eq!(view.languages[0].code, "auto");
+        assert_eq!(view.languages.len(), crate::settings::LANGUAGES.len());
+        for (value, shown) in [("", "auto"), ("Auto", "auto"), ("SV", "sv")] {
+            config.api.language = value.into();
+            let view = SettingsView::new(&config, |_| None, false);
+            assert_eq!(view.language, shown);
+            assert!(view.languages.iter().any(|l| l.code == shown));
+        }
     }
 
     #[test]
