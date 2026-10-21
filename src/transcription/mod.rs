@@ -4,6 +4,7 @@
 //!   réponse en streaming (MVP) ;
 //! - `realtime` : streaming de l'audio pendant la dictée (étape ultérieure).
 
+pub mod realtime;
 pub mod sse;
 pub mod standard;
 
