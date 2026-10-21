@@ -177,7 +177,7 @@ fn make_backend(config: &Config) -> Result<BackendAndKey> {
     }
     let backend: Arc<dyn Backend> = Arc::new(StandardBackend::new(
         &endpoint,
-        &config.api.language,
+        config.api.language_code(),
         config.api.timeout_secs,
     )?);
     Ok((Some(backend), endpoint.api_key))
@@ -410,6 +410,7 @@ impl MainLoop {
                 | Change::ProviderKey { .. }
                 | Change::ProviderModel { .. }
                 | Change::ProviderUrl { .. }
+                | Change::Language { .. }
         ) {
             let (backend, api_key) = make_backend(&config)?;
             shared.backend = backend;

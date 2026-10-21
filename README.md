@@ -88,7 +88,7 @@ base_url = "https://api.openai.com/v1"
 engine = "standard"                   # ou "realtime" : envoi pendant la dictée
 model = "gpt-4o-transcribe"           # modèle du moteur standard
 realtime_model = "gpt-live-transcribe" # modèle du moteur realtime
-language = "fr"
+language = "fr"                       # ou "auto" : reconnue par le modèle
 timeout_secs = 30
 
 [hotkey]
@@ -221,7 +221,7 @@ fournisseur, le modèle et l'attente des touches.
   texte.
 - **Raccourcis** : cliquez sur un raccourci et tapez la nouvelle combinaison ;
   le mode « maintenir pour parler » peut être désactivé.
-- **Réglages** : modèle, clé API, animation, espace après le texte, lancement
+- **Réglages** : fournisseur, modèle, langue (ou *Automatique*), clé API, animation, espace après le texte, lancement
   au démarrage, couleur d'accent.
 
 Fermer la fenêtre la libère entièrement : Dictia continue de tourner dans la

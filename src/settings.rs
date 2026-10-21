@@ -7,7 +7,9 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use toml_edit::{value, Array, ArrayOfTables, DocumentMut, Item, Table};
 
-use crate::config::{Config, HotkeyConfig, Provider, ENGINE_REALTIME, ENGINE_STANDARD};
+use crate::config::{
+    Config, HotkeyConfig, Provider, ENGINE_REALTIME, ENGINE_STANDARD, LANGUAGE_AUTO,
+};
 use crate::hotkey;
 use crate::transcription::realtime;
 use crate::vocab::VocabFile;
@@ -41,6 +43,18 @@ fn parse_provider(id: &str) -> Result<Provider> {
 }
 /// Durées de prolongement proposées (ms).
 pub const RELEASE_TAILS: [u32; 5] = [0, 150, 300, 500, 800];
+/// Langues proposées dans l'interface (`auto` : reconnue par le modèle).
+pub const LANGUAGES: [(&str, &str); 9] = [
+    (LANGUAGE_AUTO, "Automatique"),
+    ("fr", "Français"),
+    ("en", "Anglais"),
+    ("es", "Espagnol"),
+    ("de", "Allemand"),
+    ("it", "Italien"),
+    ("pt", "Portugais"),
+    ("nl", "Néerlandais"),
+    ("ar", "Arabe"),
+];
 /// Couleurs d'accent proposées.
 pub const ACCENTS: [&str; 4] = ["#7C83FF", "#38BDF8", "#34D399", "#F59E0B"];
 
@@ -68,6 +82,10 @@ pub enum Change {
         value: String,
     },
     RealtimeModel {
+        value: String,
+    },
+    /// Code ISO 639-1 ou `auto`.
+    Language {
         value: String,
     },
     Shortcut {
@@ -171,6 +189,15 @@ pub fn apply_config_change(text: &str, current: &Config, change: &Change) -> Res
                 bail!("modèle realtime inconnu : {v}");
             }
             table(&mut doc, "api")["realtime_model"] = value(v.as_str());
+        }
+        Change::Language { value: v } => {
+            let v = v.trim().to_ascii_lowercase();
+            let valid = v == LANGUAGE_AUTO
+                || ((2..=3).contains(&v.len()) && v.chars().all(|c| c.is_ascii_lowercase()));
+            if !valid {
+                bail!("langue invalide : {v:?} (code comme « fr » ou « auto »)");
+            }
+            table(&mut doc, "api")["language"] = value(v);
         }
         Change::Shortcut { value: v } | Change::PushToTalk { value: v } => {
             let mut hk: HotkeyConfig = current.hotkey.clone();
@@ -389,6 +416,17 @@ mod tests {
                 .push_to_talk,
             ""
         );
+    }
+
+    #[test]
+    fn language_change() {
+        let set =
+            |v: &str| apply(Change::Language { value: v.into() }).map(|c| c.api.language.clone());
+        assert_eq!(set("auto").unwrap(), "auto");
+        assert_eq!(set(" EN ").unwrap(), "en");
+        assert!(set("").is_err());
+        assert!(set("français").is_err());
+        assert!(set("f1").is_err());
     }
 
     #[test]

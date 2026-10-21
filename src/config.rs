@@ -48,7 +48,8 @@ model = "gpt-4o-transcribe"
 # gpt-4o-transcribe ou gpt-4o-mini-transcribe.
 realtime_model = "gpt-live-transcribe"
 # --- Communs à tous les fournisseurs ---
-# Langue de la dictée (code ISO 639-1).
+# Langue de la dictée (code ISO 639-1 : fr, en, es…) ou "auto" pour que le
+# modèle la reconnaisse lui-même (utile si vous dictez en plusieurs langues).
 language = "fr"
 # Délai maximal d'une transcription, en secondes.
 timeout_secs = 30
@@ -148,6 +149,9 @@ impl Default for IndicatorConfig {
     }
 }
 
+/// Valeur de `language` qui laisse le modèle reconnaître la langue.
+pub const LANGUAGE_AUTO: &str = "auto";
+
 #[derive(Clone, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct ApiConfig {
@@ -193,6 +197,16 @@ impl fmt::Debug for ApiConfig {
 }
 
 impl ApiConfig {
+    /// Code de langue à transmettre au modèle ; vide en mode automatique.
+    pub fn language_code(&self) -> &str {
+        let code = self.language.trim();
+        if code.eq_ignore_ascii_case(LANGUAGE_AUTO) {
+            ""
+        } else {
+            code
+        }
+    }
+
     pub fn is_realtime(&self) -> bool {
         self.engine.trim().eq_ignore_ascii_case(ENGINE_REALTIME)
     }
@@ -475,6 +489,16 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_language_sends_no_code() {
+        let mut api = ApiConfig::default();
+        assert_eq!(api.language_code(), "fr");
+        for auto in ["auto", " AUTO ", ""] {
+            api.language = auto.into();
+            assert_eq!(api.language_code(), "");
+        }
+    }
 
     #[test]
     fn default_file_matches_default_struct() {
