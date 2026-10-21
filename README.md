@@ -17,8 +17,8 @@ l'apparition du texte. Le cahier des charges complet se trouve dans
 - connexion TLS ouverte dès le 1er appui ;
 - transcription `gpt-4o-transcribe` en streaming (`/v1/audio/transcriptions`) ;
 - remplacements personnalisés, puis frappe via `SendInput` (sans presse-papier) ;
-- icône dans la zone de notification (bleu : prêt, rouge : enregistrement,
-  orange : transcription, gris : erreur) ;
+- icône dans la zone de notification (ambre : prêt, rouge : enregistrement,
+  bleu : transcription, gris : erreur) ;
 - journal des latences de chaque dictée ;
 - animation à côté du curseur pendant l'écoute et la transcription ;
 - fenêtre Dictia : historique, vocabulaire, raccourcis et réglages,
@@ -146,7 +146,7 @@ configuration.
 
 ## Utilisation
 
-1. Lancez `dictia.exe` : une pastille bleue avec un micro apparaît dans la zone
+1. Lancez `dictia.exe` : une pastille ambre avec un micro apparaît dans la zone
    de notification. Un clic dessus ouvre la fenêtre Dictia ; relancer
    `dictia.exe` alors qu'il tourne déjà l'ouvre aussi. Sans clé API, la
    fenêtre s'ouvre directement sur les Réglages.
@@ -159,14 +159,14 @@ configuration.
      après le relâchement (réglable dans Réglages → *Prolonger après
      relâchement*) pour ne pas couper la fin de la phrase ; ré-appuyer pendant
      ce délai prolonge la même dictée.
-4. L'icône devient orange, puis le texte est tapé dans la fenêtre d'origine,
+4. L'icône devient bleue, puis le texte est tapé dans la fenêtre d'origine,
    même si vous en avez changé entre-temps.
 
 Une petite pastille suit le curseur de texte (ou, à défaut, la souris) pendant
 la dictée :
 - **à l'écoute** : un point rouge qui pulse et des barres qui bougent avec
   votre voix ; si les barres restent plates, le micro ne vous entend pas ;
-- **transcription en cours** : trois points orange qui ondulent.
+- **transcription en cours** : trois points bleus qui ondulent.
 
 Elle disparaît dès que le texte est tapé. Pour la masquer :
 `[indicator] enabled = false`.

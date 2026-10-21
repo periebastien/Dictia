@@ -1,4 +1,4 @@
-"""Génère assets/dictia.ico (logo des maquettes : carré indigo, micro sombre).
+"""Génère assets/dictia.ico (logo : carré ambre, micro sombre).
 
 Usage : python3 assets/generate_icon.py   (nécessite Pillow)
 """
@@ -6,7 +6,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-ACCENT = (0x7C, 0x83, 0xFF, 255)
+ACCENT = (0xF5, 0x9E, 0x0B, 255)  # ambre, bien visible dans la barre des tâches
 INK = (0x0E, 0x0E, 0x12, 255)
 BIG = 1024
 SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256]

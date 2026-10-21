@@ -27,9 +27,9 @@ impl TrayState {
 
     fn color(self) -> [u8; 3] {
         match self {
-            Self::Idle => [0x3B, 0x6E, 0xD8],       // bleu
+            Self::Idle => [0xF5, 0x9E, 0x0B],       // ambre (couleur de Dictia)
             Self::Recording => [0xE5, 0x39, 0x35],  // rouge
-            Self::Processing => [0xF5, 0x8F, 0x00], // orange
+            Self::Processing => [0x3B, 0x82, 0xF6], // bleu
             Self::Error => [0x75, 0x75, 0x75],      // gris
         }
     }
@@ -188,7 +188,7 @@ mod tests {
         assert_eq!(rgba.len(), (ICON_SIZE * ICON_SIZE * 4) as usize);
         assert_eq!(pixel(&rgba, 0, 0)[3], 0, "coin transparent");
         assert_eq!(pixel(&rgba, 16, 12), [255, 255, 255, 255], "micro blanc");
-        assert_eq!(pixel(&rgba, 4, 16), [0x3B, 0x6E, 0xD8, 255], "fond bleu");
+        assert_eq!(pixel(&rgba, 4, 16), [0xF5, 0x9E, 0x0B, 255], "fond ambre");
     }
 
     #[test]
