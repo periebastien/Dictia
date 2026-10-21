@@ -7,13 +7,38 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use toml_edit::{value, Array, ArrayOfTables, DocumentMut, Item, Table};
 
-use crate::config::{Config, HotkeyConfig, ENGINE_REALTIME, ENGINE_STANDARD};
+use crate::config::{Config, HotkeyConfig, Provider, ENGINE_REALTIME, ENGINE_STANDARD};
 use crate::hotkey;
 use crate::transcription::realtime;
 use crate::vocab::VocabFile;
 
-/// Modèles proposés dans l'interface.
-pub const MODELS: [&str; 3] = ["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1"];
+/// Modèles suggérés pour chaque fournisseur (tout autre nom reste accepté :
+/// les fournisseurs publient régulièrement de nouveaux modèles).
+pub fn suggested_models(provider: Provider) -> &'static [&'static str] {
+    match provider {
+        Provider::OpenAi => &[
+            "gpt-4o-transcribe",
+            "gpt-4o-mini-transcribe",
+            "gpt-transcribe",
+            "whisper-1",
+        ],
+        Provider::Mistral => &["voxtral-mini-latest", "voxtral-mini-transcribe-3"],
+        Provider::Local => &["mistralai/Voxtral-Mini-4B-Realtime-2602"],
+    }
+}
+
+/// Section de `config.toml` d'un fournisseur.
+fn provider_section(provider: Provider) -> &'static str {
+    match provider {
+        Provider::OpenAi => "api",
+        Provider::Mistral => "mistral",
+        Provider::Local => "local",
+    }
+}
+
+fn parse_provider(id: &str) -> Result<Provider> {
+    Provider::parse(id).with_context(|| format!("fournisseur inconnu : {id}"))
+}
 /// Durées de prolongement proposées (ms).
 pub const RELEASE_TAILS: [u32; 5] = [0, 150, 300, 500, 800];
 /// Couleurs d'accent proposées.
@@ -23,17 +48,49 @@ pub const ACCENTS: [&str; 4] = ["#7C83FF", "#38BDF8", "#34D399", "#F59E0B"];
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Change {
-    ApiKey { value: String },
-    Model { value: String },
-    Engine { value: String },
-    RealtimeModel { value: String },
-    Shortcut { value: String },
-    PushToTalk { value: String },
-    Indicator { value: bool },
-    TrailingSpace { value: bool },
-    LiveTyping { value: bool },
-    ReleaseTail { value: u32 },
-    Accent { value: String },
+    /// Fournisseur actif.
+    Provider {
+        value: String,
+    },
+    ProviderKey {
+        provider: String,
+        value: String,
+    },
+    ProviderModel {
+        provider: String,
+        value: String,
+    },
+    ProviderUrl {
+        provider: String,
+        value: String,
+    },
+    Engine {
+        value: String,
+    },
+    RealtimeModel {
+        value: String,
+    },
+    Shortcut {
+        value: String,
+    },
+    PushToTalk {
+        value: String,
+    },
+    Indicator {
+        value: bool,
+    },
+    TrailingSpace {
+        value: bool,
+    },
+    LiveTyping {
+        value: bool,
+    },
+    ReleaseTail {
+        value: u32,
+    },
+    Accent {
+        value: String,
+    },
 }
 
 /// Vocabulaire tel que l'interface l'édite.
@@ -79,12 +136,29 @@ fn table<'a>(doc: &'a mut DocumentMut, name: &str) -> &'a mut Table {
 pub fn apply_config_change(text: &str, current: &Config, change: &Change) -> Result<String> {
     let mut doc: DocumentMut = text.parse().context("config.toml illisible")?;
     match change {
-        Change::ApiKey { value: v } => table(&mut doc, "api")["api_key"] = value(v.trim()),
-        Change::Model { value: v } => {
-            if !MODELS.contains(&v.as_str()) {
-                bail!("modèle inconnu : {v}");
+        Change::Provider { value: v } => {
+            let p = parse_provider(v)?;
+            table(&mut doc, "api")["provider"] = value(p.id());
+        }
+        Change::ProviderKey { provider, value: v } => {
+            let section = provider_section(parse_provider(provider)?);
+            table(&mut doc, section)["api_key"] = value(v.trim());
+        }
+        Change::ProviderModel { provider, value: v } => {
+            let v = v.trim();
+            if v.is_empty() || v.contains(char::is_whitespace) {
+                bail!("nom de modèle invalide : {v:?}");
             }
-            table(&mut doc, "api")["model"] = value(v.as_str());
+            let section = provider_section(parse_provider(provider)?);
+            table(&mut doc, section)["model"] = value(v);
+        }
+        Change::ProviderUrl { provider, value: v } => {
+            let v = v.trim().trim_end_matches('/');
+            if !(v.starts_with("https://") || v.starts_with("http://")) {
+                bail!("adresse invalide (http:// ou https:// attendu) : {v}");
+            }
+            let section = provider_section(parse_provider(provider)?);
+            table(&mut doc, section)["base_url"] = value(v);
         }
         Change::Engine { value: v } => {
             if v != ENGINE_STANDARD && v != ENGINE_REALTIME {
@@ -228,24 +302,39 @@ mod tests {
 
     #[test]
     fn edits_config_values_and_keeps_comments() {
+        let key = |provider: &str, value: &str| Change::ProviderKey {
+            provider: provider.into(),
+            value: value.into(),
+        };
+        assert_eq!(apply(key("openai", " sk-x ")).unwrap().api.api_key, "sk-x");
+        assert_eq!(apply(key("mistral", "mk")).unwrap().mistral.api_key, "mk");
+        assert_eq!(apply(key("local", "lk")).unwrap().local.api_key, "lk");
+        let model = Change::ProviderModel {
+            provider: "openai".into(),
+            value: "whisper-1".into(),
+        };
+        assert_eq!(apply(model).unwrap().api.model, "whisper-1");
+        let model = Change::ProviderModel {
+            provider: "mistral".into(),
+            value: "voxtral-mini-transcribe-3".into(),
+        };
         assert_eq!(
-            apply(Change::ApiKey {
-                value: " sk-x ".into()
-            })
-            .unwrap()
-            .api
-            .api_key,
-            "sk-x"
+            apply(model).unwrap().mistral.model,
+            "voxtral-mini-transcribe-3"
         );
+        let url = Change::ProviderUrl {
+            provider: "local".into(),
+            value: "http://127.0.0.1:9000/v1/".into(),
+        };
         assert_eq!(
-            apply(Change::Model {
-                value: "whisper-1".into()
-            })
-            .unwrap()
-            .api
-            .model,
-            "whisper-1"
+            apply(url).unwrap().local.base_url,
+            "http://127.0.0.1:9000/v1"
         );
+        let cfg = apply(Change::Provider {
+            value: "mistral".into(),
+        })
+        .unwrap();
+        assert_eq!(cfg.provider(), Provider::Mistral);
         assert!(
             !apply(Change::Indicator { value: false })
                 .unwrap()
@@ -304,8 +393,23 @@ mod tests {
 
     #[test]
     fn rejects_invalid_changes() {
-        assert!(apply(Change::Model {
-            value: "gpt-9".into()
+        assert!(apply(Change::Provider {
+            value: "google".into()
+        })
+        .is_err());
+        assert!(apply(Change::ProviderModel {
+            provider: "mistral".into(),
+            value: "  ".into()
+        })
+        .is_err());
+        assert!(apply(Change::ProviderUrl {
+            provider: "local".into(),
+            value: "localhost:8000".into()
+        })
+        .is_err());
+        assert!(apply(Change::ProviderKey {
+            provider: "inconnu".into(),
+            value: "x".into()
         })
         .is_err());
         assert!(apply(Change::Accent {

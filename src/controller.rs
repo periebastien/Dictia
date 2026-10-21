@@ -185,7 +185,7 @@ enum TyperMsg {
 /// Frappe au fil de la transcription en direct (moteur realtime).
 struct Typer {
     tx: mpsc::UnboundedSender<TyperMsg>,
-    task: tokio::task::JoinHandle<Result<()>>,
+    task: tokio::task::JoinHandle<Result<Duration>>,
 }
 
 impl Typer {
@@ -196,7 +196,8 @@ impl Typer {
     }
 
     /// Envoie la dernière consigne et attend que la frappe soit terminée.
-    async fn finish(self, last: TyperMsg) -> Result<()> {
+    /// Renvoie le temps passé à attendre le relâchement des touches.
+    async fn finish(self, last: TyperMsg) -> Result<Duration> {
         let _ = self.tx.send(last);
         self.task.await?
     }
@@ -207,7 +208,8 @@ async fn run_typer(
     vocab: Arc<Vocab>,
     lock: Arc<Mutex<()>>,
     mut rx: mpsc::UnboundedReceiver<TyperMsg>,
-) -> Result<()> {
+) -> Result<Duration> {
+    let mut keys_wait = Duration::ZERO;
     let mut typed = String::new();
     let mut raw = String::new();
     // Pris à la première frappe seulement : une dictée précédente encore en
@@ -232,7 +234,7 @@ async fn run_typer(
                 guard = Some(lock.lock().await);
             }
             let insert = insert.to_owned();
-            tokio::task::spawn_blocking(move || {
+            keys_wait += tokio::task::spawn_blocking(move || {
                 inject::apply_correction(target, erase, &insert, last)
             })
             .await??;
@@ -242,7 +244,7 @@ async fn run_typer(
             break;
         }
     }
-    Ok(())
+    Ok(keys_wait)
 }
 
 #[derive(Clone)]
@@ -310,8 +312,9 @@ impl Controller {
         let shared = self.shared.read().ok()?;
         let backend = shared.backend.clone()?;
         let api = &shared.config.api;
-        let realtime = api
-            .is_realtime()
+        let realtime = shared
+            .config
+            .uses_realtime()
             .then(|| shared.api_key.clone())
             .flatten()
             .map(|api_key| RealtimeConfig {
@@ -320,7 +323,7 @@ impl Controller {
                 model: api.realtime_model.clone(),
                 language: api.language.clone(),
                 prompt: shared.vocab.prompt().to_owned(),
-                keywords: shared.vocab_file.terms.clone(),
+                keywords: shared.vocab.terms().to_vec(),
                 timeout: Duration::from_secs(api.timeout_secs.max(1)),
             });
         Some((backend, realtime))
@@ -437,11 +440,19 @@ impl Controller {
         };
 
         let stopped = capture.stopped;
+        let provider = config.provider();
+        let standard_model = config.endpoint(provider, |_| None).model;
         let mut lat = Latencies {
             backend: if capture.live.is_some() {
                 "realtime"
             } else {
                 backend.name()
+            },
+            provider: provider.name(),
+            model: if capture.live.is_some() {
+                config.api.realtime_model.clone()
+            } else {
+                standard_model.clone()
             },
             recording: capture.recording,
             ..Default::default()
@@ -476,6 +487,7 @@ impl Controller {
                 Err(e) => {
                     log::warn!("transcription en direct indisponible, repli sur le moteur standard : {e:#}");
                     lat.backend = "realtime>standard";
+                    lat.model = standard_model;
                     transcribe_file(
                         &*backend,
                         &vocab,
@@ -517,12 +529,14 @@ impl Controller {
                 } else {
                     TyperMsg::Finish(text.clone())
                 };
-                typer.finish(last).await?;
+                lat.keys_wait = typer.finish(last).await?;
             }
             None if !text.is_empty() => {
                 let _guard = self.inject_lock.lock().await;
                 let typed = text.clone();
-                tokio::task::spawn_blocking(move || inject::type_into(target, &typed)).await??;
+                lat.keys_wait =
+                    tokio::task::spawn_blocking(move || inject::type_into(target, &typed))
+                        .await??;
             }
             None => {}
         }
@@ -606,7 +620,7 @@ async fn transcribe_file(
         backend
             .transcribe(
                 AudioPayload::flac(flac_bytes),
-                vocab.prompt(),
+                vocab.guidance(),
                 &mut progress,
             )
             .await?

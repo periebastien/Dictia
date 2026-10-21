@@ -25,10 +25,16 @@ pub const DEFAULT_CONFIG: &str = r##"# Configuration de Dictia
 # Relancez Dictia après toute modification.
 
 [api]
+# Fournisseur de transcription actif : "openai", "mistral" ou "local".
+# Chaque fournisseur a sa clé, son adresse et son modèle (sections
+# [api] pour OpenAI, [mistral] et [local] ci-dessous), modifiables aussi
+# dans Réglages.
+provider = "openai"
+# --- OpenAI ---
 # Clé API OpenAI. Laissez vide pour utiliser la variable d'environnement
 # OPENAI_API_KEY. Ne partagez jamais ce fichier s'il contient votre clé.
 api_key = ""
-# URL de base de l'API (compatible OpenAI).
+# URL de base de l'API OpenAI.
 base_url = "https://api.openai.com/v1"
 # Moteur de transcription :
 #   "standard" : l'audio est envoyé à la fin de la dictée (éprouvé) ;
@@ -41,10 +47,25 @@ model = "gpt-4o-transcribe"
 # Modèle du moteur realtime : gpt-live-transcribe, gpt-realtime-whisper,
 # gpt-4o-transcribe ou gpt-4o-mini-transcribe.
 realtime_model = "gpt-live-transcribe"
+# --- Communs à tous les fournisseurs ---
 # Langue de la dictée (code ISO 639-1).
 language = "fr"
 # Délai maximal d'une transcription, en secondes.
 timeout_secs = 30
+
+[mistral]
+# Clé API Mistral. Laissez vide pour utiliser MISTRAL_API_KEY.
+api_key = ""
+base_url = "https://api.mistral.ai/v1"
+# Modèle Voxtral (ex. voxtral-mini-latest).
+model = "voxtral-mini-latest"
+
+[local]
+# Serveur de transcription sur votre PC, compatible avec l'API OpenAI
+# (par exemple vLLM avec un modèle Voxtral). Clé facultative.
+api_key = ""
+base_url = "http://localhost:8000/v1"
+model = "mistralai/Voxtral-Mini-4B-Realtime-2602"
 
 [hotkey]
 # Modificateurs : Ctrl, Alt, Maj (ou Shift), Win.
@@ -88,10 +109,12 @@ enabled = true
 accent = "#7C83FF"
 "##;
 
-#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub api: ApiConfig,
+    pub mistral: ProviderConfig,
+    pub local: ProviderConfig,
     pub hotkey: HotkeyConfig,
     pub audio: AudioConfig,
     pub inject: InjectConfig,
@@ -128,6 +151,7 @@ impl Default for IndicatorConfig {
 #[derive(Clone, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct ApiConfig {
+    pub provider: String,
     pub api_key: String,
     pub base_url: String,
     pub engine: String,
@@ -140,6 +164,7 @@ pub struct ApiConfig {
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
+            provider: "openai".into(),
             api_key: String::new(),
             base_url: "https://api.openai.com/v1".into(),
             engine: ENGINE_STANDARD.into(),
@@ -155,6 +180,7 @@ impl Default for ApiConfig {
 impl fmt::Debug for ApiConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ApiConfig")
+            .field("provider", &self.provider)
             .field("api_key", &if self.api_key.is_empty() { "" } else { "***" })
             .field("base_url", &self.base_url)
             .field("engine", &self.engine)
@@ -169,17 +195,6 @@ impl fmt::Debug for ApiConfig {
 impl ApiConfig {
     pub fn is_realtime(&self) -> bool {
         self.engine.trim().eq_ignore_ascii_case(ENGINE_REALTIME)
-    }
-
-    /// Clé du fichier si renseignée, sinon celle de l'environnement.
-    pub fn resolve_api_key(&self, env_value: Option<String>) -> Option<String> {
-        let from_file = self.api_key.trim();
-        if !from_file.is_empty() {
-            return Some(from_file.to_owned());
-        }
-        env_value
-            .map(|v| v.trim().to_owned())
-            .filter(|v| !v.is_empty())
     }
 }
 
@@ -233,6 +248,188 @@ impl Default for InjectConfig {
             live_typing: true,
         }
     }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            api: ApiConfig::default(),
+            mistral: ProviderConfig {
+                api_key: String::new(),
+                base_url: Provider::Mistral.default_base_url().into(),
+                model: Provider::Mistral.default_model().into(),
+            },
+            local: ProviderConfig {
+                api_key: String::new(),
+                base_url: Provider::Local.default_base_url().into(),
+                model: Provider::Local.default_model().into(),
+            },
+            hotkey: HotkeyConfig::default(),
+            audio: AudioConfig::default(),
+            inject: InjectConfig::default(),
+            indicator: IndicatorConfig::default(),
+            ui: UiConfig::default(),
+        }
+    }
+}
+
+/// Réglages d'un fournisseur autre qu'OpenAI.
+#[derive(Clone, Default, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct ProviderConfig {
+    pub api_key: String,
+    pub base_url: String,
+    pub model: String,
+}
+
+impl fmt::Debug for ProviderConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderConfig")
+            .field("api_key", &if self.api_key.is_empty() { "" } else { "***" })
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .finish()
+    }
+}
+
+/// Fournisseur de transcription.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provider {
+    OpenAi,
+    Mistral,
+    Local,
+}
+
+/// Format de requête et de réponse de l'API de transcription.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dialect {
+    OpenAi,
+    Mistral,
+}
+
+impl Provider {
+    pub const ALL: [Provider; 3] = [Self::OpenAi, Self::Mistral, Self::Local];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::OpenAi => "openai",
+            Self::Mistral => "mistral",
+            Self::Local => "local",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::OpenAi => "OpenAI",
+            Self::Mistral => "Mistral",
+            Self::Local => "Local",
+        }
+    }
+
+    pub fn parse(id: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|p| p.id().eq_ignore_ascii_case(id.trim()))
+    }
+
+    /// Variable d'environnement de secours pour la clé.
+    pub fn key_env(self) -> Option<&'static str> {
+        match self {
+            Self::OpenAi => Some(API_KEY_ENV),
+            Self::Mistral => Some("MISTRAL_API_KEY"),
+            Self::Local => None,
+        }
+    }
+
+    /// Un serveur local peut se passer de clé.
+    pub fn requires_key(self) -> bool {
+        self != Self::Local
+    }
+
+    pub fn dialect(self) -> Dialect {
+        match self {
+            Self::Mistral => Dialect::Mistral,
+            Self::OpenAi | Self::Local => Dialect::OpenAi,
+        }
+    }
+
+    /// Adresse utilisée si aucune n'est renseignée.
+    pub fn default_base_url(self) -> &'static str {
+        match self {
+            Self::OpenAi => "https://api.openai.com/v1",
+            Self::Mistral => "https://api.mistral.ai/v1",
+            Self::Local => "http://localhost:8000/v1",
+        }
+    }
+
+    /// Modèle utilisé si aucun n'est renseigné.
+    pub fn default_model(self) -> &'static str {
+        match self {
+            Self::OpenAi => "gpt-4o-transcribe",
+            Self::Mistral => "voxtral-mini-latest",
+            Self::Local => "mistralai/Voxtral-Mini-4B-Realtime-2602",
+        }
+    }
+
+    /// Seul OpenAI propose pour l'instant le moteur realtime de Dictia.
+    pub fn supports_realtime(self) -> bool {
+        self == Self::OpenAi
+    }
+}
+
+/// Paramètres effectifs d'un fournisseur.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Endpoint {
+    pub provider: Provider,
+    pub base_url: String,
+    pub model: String,
+    pub api_key: Option<String>,
+}
+
+impl Config {
+    /// Fournisseur actif (OpenAI si la valeur est inconnue).
+    pub fn provider(&self) -> Provider {
+        Provider::parse(&self.api.provider).unwrap_or(Provider::OpenAi)
+    }
+
+    /// Paramètres d'un fournisseur ; `env` lit une variable d'environnement.
+    pub fn endpoint(&self, provider: Provider, env: impl Fn(&str) -> Option<String>) -> Endpoint {
+        let (key, base_url, model) = match provider {
+            Provider::OpenAi => (&self.api.api_key, &self.api.base_url, &self.api.model),
+            Provider::Mistral => (
+                &self.mistral.api_key,
+                &self.mistral.base_url,
+                &self.mistral.model,
+            ),
+            Provider::Local => (&self.local.api_key, &self.local.base_url, &self.local.model),
+        };
+        let api_key = Some(key.trim().to_owned())
+            .filter(|k| !k.is_empty())
+            .or_else(|| provider.key_env().and_then(&env))
+            .map(|k| k.trim().to_owned())
+            .filter(|k| !k.is_empty());
+        // Une section créée par l'interface peut ne contenir que la clé.
+        let or_default = |value: &str, default: &str| {
+            let value = value.trim();
+            if value.is_empty() { default } else { value }.to_owned()
+        };
+        Endpoint {
+            provider,
+            base_url: or_default(base_url, provider.default_base_url()),
+            model: or_default(model, provider.default_model()),
+            api_key,
+        }
+    }
+
+    /// Moteur realtime effectivement utilisé (choisi et disponible).
+    pub fn uses_realtime(&self) -> bool {
+        self.provider().supports_realtime() && self.api.is_realtime()
+    }
+}
+
+/// Variables d'environnement du processus.
+pub fn process_env(name: &str) -> Option<String> {
+    std::env::var(name).ok()
 }
 
 /// `%APPDATA%\Dictia\`, ou `DICTIA_CONFIG_DIR` si cette variable est définie.
@@ -293,26 +490,59 @@ mod tests {
     }
 
     #[test]
-    fn api_key_from_file_wins_over_env() {
-        let api = ApiConfig {
-            api_key: " sk-file ".into(),
-            ..Default::default()
-        };
+    fn providers_and_their_keys() {
+        let mut cfg = Config::default();
+        assert_eq!(cfg.provider(), Provider::OpenAi);
+        cfg.api.provider = "Mistral".into();
+        assert_eq!(cfg.provider(), Provider::Mistral);
+        cfg.api.provider = "inconnu".into();
+        assert_eq!(cfg.provider(), Provider::OpenAi);
+
+        let env = |name: &str| (name == "MISTRAL_API_KEY").then(|| " sk-env ".to_owned());
+        let m = cfg.endpoint(Provider::Mistral, env);
+        assert_eq!(m.api_key.as_deref(), Some("sk-env"));
+        assert_eq!(m.base_url, "https://api.mistral.ai/v1");
+        assert_eq!(m.model, "voxtral-mini-latest");
+        cfg.mistral.api_key = "mk".into();
         assert_eq!(
-            api.resolve_api_key(Some("sk-env".into())).as_deref(),
-            Some("sk-file")
+            cfg.endpoint(Provider::Mistral, env).api_key.as_deref(),
+            Some("mk")
+        );
+        assert_eq!(cfg.endpoint(Provider::OpenAi, env).api_key, None);
+        // Le serveur local ne lit aucune variable d'environnement.
+        assert_eq!(
+            cfg.endpoint(Provider::Local, |_| Some("x".into())).api_key,
+            None
         );
     }
 
     #[test]
-    fn api_key_falls_back_to_env() {
-        let api = ApiConfig::default();
-        assert_eq!(
-            api.resolve_api_key(Some("sk-env".into())).as_deref(),
-            Some("sk-env")
-        );
-        assert_eq!(api.resolve_api_key(Some("  ".into())), None);
-        assert_eq!(api.resolve_api_key(None), None);
+    fn section_with_only_a_key_keeps_default_address_and_model() {
+        let cfg = Config::parse("[mistral]\napi_key = \"mk\"\n").unwrap();
+        let m = cfg.endpoint(Provider::Mistral, |_| None);
+        assert_eq!(m.base_url, "https://api.mistral.ai/v1");
+        assert_eq!(m.model, "voxtral-mini-latest");
+        assert_eq!(m.api_key.as_deref(), Some("mk"));
+        let l = cfg.endpoint(Provider::Local, |_| None);
+        assert_eq!(l.base_url, "http://localhost:8000/v1");
+    }
+
+    #[test]
+    fn realtime_only_with_openai() {
+        let mut cfg = Config::default();
+        cfg.api.engine = "realtime".into();
+        assert!(cfg.uses_realtime());
+        cfg.api.provider = "mistral".into();
+        assert!(!cfg.uses_realtime());
+    }
+
+    #[test]
+    fn provider_debug_hides_key() {
+        let p = ProviderConfig {
+            api_key: "secret".into(),
+            ..Default::default()
+        };
+        assert!(!format!("{p:?}").contains("secret"));
     }
 
     #[test]

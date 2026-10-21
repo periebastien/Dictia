@@ -11,11 +11,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub const METRICS_FILE: &str = "latences.csv";
 
 pub const CSV_HEADER: &str = "horodatage_unix,backend,enregistrement_ms,parole_ms,flac_octets,\
-encodage_ms,upload_ms,premier_token_ms,fin_ms,frappe_ms,total_ms,caracteres";
+encodage_ms,upload_ms,premier_token_ms,fin_ms,frappe_ms,total_ms,caracteres,fournisseur,modele,\
+attente_touches_ms";
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Latencies {
     pub backend: &'static str,
+    /// « OpenAI », « Mistral » ou « Local ».
+    pub provider: &'static str,
+    pub model: String,
     /// Durée de l'enregistrement brut.
     pub recording: Duration,
     /// Durée de l'audio envoyé, après retrait des silences.
@@ -31,6 +35,8 @@ pub struct Latencies {
     pub done: Duration,
     /// Durée de la frappe (focus compris).
     pub inject: Duration,
+    /// Part de la frappe passée à attendre le relâchement de Ctrl/Alt/Win.
+    pub keys_wait: Duration,
     /// Depuis l'arrêt, jusqu'à la fin de la frappe.
     pub total: Duration,
     pub chars: usize,
@@ -65,7 +71,7 @@ impl Latencies {
 
     pub fn csv_row(&self, timestamp: u64) -> String {
         format!(
-            "{timestamp},{},{},{},{},{},{},{},{},{},{},{}",
+            "{timestamp},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             self.backend,
             ms(self.recording),
             ms(self.speech),
@@ -77,6 +83,10 @@ impl Latencies {
             ms(self.inject),
             ms(self.total),
             self.chars,
+            self.provider,
+            // Une virgule casserait le format CSV.
+            self.model.replace(',', " "),
+            ms(self.keys_wait),
         )
     }
 
@@ -101,6 +111,8 @@ mod tests {
     fn sample() -> Latencies {
         Latencies {
             backend: "standard",
+            provider: "OpenAI",
+            model: "gpt-4o-transcribe".into(),
             recording: Duration::from_millis(4_200),
             speech: Duration::from_millis(3_100),
             flac_bytes: 61_000,
@@ -109,6 +121,7 @@ mod tests {
             first_token: None,
             done: Duration::from_millis(640),
             inject: Duration::from_millis(25),
+            keys_wait: Duration::from_millis(5),
             total: Duration::from_millis(665),
             chars: 48,
         }
@@ -119,7 +132,7 @@ mod tests {
         let row = sample().csv_row(1_700_000_000);
         assert_eq!(
             row,
-            "1700000000,standard,4200,3100,61000,12,180,-,640,25,665,48"
+            "1700000000,standard,4200,3100,61000,12,180,-,640,25,665,48,OpenAI,gpt-4o-transcribe,5"
         );
         assert_eq!(row.split(',').count(), CSV_HEADER.split(',').count());
     }

@@ -9,10 +9,10 @@ pub mod window;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{Config, ENGINE_REALTIME, ENGINE_STANDARD};
+use crate::config::{Config, Provider, ENGINE_REALTIME, ENGINE_STANDARD};
 use crate::history::Entry;
-use crate::settings::{mask_api_key, Change, VocabEdit, ACCENTS, MODELS, RELEASE_TAILS};
-use crate::stats::EngineStats;
+use crate::settings::{mask_api_key, suggested_models, Change, VocabEdit, ACCENTS, RELEASE_TAILS};
+use crate::stats::ModelStats;
 use crate::transcription::realtime;
 use crate::tray::TrayState;
 
@@ -78,11 +78,10 @@ pub struct AccentView {
 /// Réglages tels que la page les affiche (jamais la clé API complète).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SettingsView {
-    pub api_key_set: bool,
-    pub api_key_hint: String,
+    /// Fournisseur actif.
+    pub provider: &'static str,
+    pub providers: Vec<ProviderView>,
     pub engine: String,
-    pub model: String,
-    pub models: Vec<&'static str>,
     pub realtime_model: String,
     pub realtime_models: Vec<&'static str>,
     pub shortcut: String,
@@ -98,20 +97,54 @@ pub struct SettingsView {
     pub version: &'static str,
 }
 
+/// Réglages d'un fournisseur (jamais la clé entière).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ProviderView {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub api_key_set: bool,
+    pub api_key_hint: String,
+    pub needs_key: bool,
+    pub base_url: String,
+    pub model: String,
+    pub models: &'static [&'static str],
+    pub realtime: bool,
+}
+
 impl SettingsView {
-    pub fn new(config: &Config, api_key: Option<&str>, start_with_windows: bool) -> Self {
+    /// `env` lit les variables d'environnement (clés de secours).
+    pub fn new(
+        config: &Config,
+        env: impl Fn(&str) -> Option<String>,
+        start_with_windows: bool,
+    ) -> Self {
         const NAMES: [&str; 4] = ["Indigo", "Bleu ciel", "Vert", "Ambre"];
+        let providers = Provider::ALL
+            .into_iter()
+            .map(|p| {
+                let e = config.endpoint(p, &env);
+                ProviderView {
+                    id: p.id(),
+                    name: p.name(),
+                    api_key_set: e.api_key.is_some(),
+                    api_key_hint: e.api_key.as_deref().map(mask_api_key).unwrap_or_default(),
+                    needs_key: p.requires_key(),
+                    base_url: e.base_url,
+                    model: e.model,
+                    models: suggested_models(p),
+                    realtime: p.supports_realtime(),
+                }
+            })
+            .collect();
         Self {
-            api_key_set: api_key.is_some(),
-            api_key_hint: api_key.map(mask_api_key).unwrap_or_default(),
+            provider: config.provider().id(),
+            providers,
             engine: if config.api.is_realtime() {
                 ENGINE_REALTIME
             } else {
                 ENGINE_STANDARD
             }
             .to_owned(),
-            model: config.api.model.clone(),
-            models: MODELS.to_vec(),
             realtime_model: config.api.realtime_model.clone(),
             realtime_models: realtime::MODELS.to_vec(),
             shortcut: config.hotkey.shortcut.clone(),
@@ -151,11 +184,11 @@ pub enum Message {
         settings: SettingsView,
         vocab: VocabEdit,
         history: Vec<Entry>,
-        stats: Vec<EngineStats>,
+        stats: Vec<ModelStats>,
         tab: Option<Tab>,
     },
     Stats {
-        stats: Vec<EngineStats>,
+        stats: Vec<ModelStats>,
     },
     Settings {
         settings: SettingsView,
@@ -248,15 +281,24 @@ mod tests {
 
     #[test]
     fn settings_view_hides_the_key() {
-        let view = SettingsView::new(&Config::default(), Some("sk-proj-secret1234"), true);
+        let mut config = Config::default();
+        config.mistral.api_key = "mk-secret-mistral-9876".into();
+        let env = |name: &str| (name == "OPENAI_API_KEY").then(|| "sk-proj-secret1234".to_owned());
+        let view = SettingsView::new(&config, env, true);
         let json = serde_json::to_string(&view).unwrap();
         assert!(!json.contains("secret"), "{json}");
-        assert_eq!(view.api_key_hint, "sk-…1234");
+        assert_eq!(view.provider, "openai");
+        let ids: Vec<_> = view.providers.iter().map(|p| p.id).collect();
+        assert_eq!(ids, ["openai", "mistral", "local"]);
+        assert_eq!(view.providers[0].api_key_hint, "sk-…1234");
+        assert_eq!(view.providers[1].api_key_hint, "mk-…9876");
+        assert!(!view.providers[2].api_key_set && !view.providers[2].needs_key);
+        assert!(view.providers[0].realtime && !view.providers[1].realtime);
         assert_eq!(view.accents.len(), 4);
         assert_eq!(view.release_tail_ms, 300);
         assert_eq!(view.engine, "standard");
         assert_eq!(view.realtime_model, "gpt-live-transcribe");
-        assert!(!SettingsView::new(&Config::default(), None, false).api_key_set);
+        assert!(!SettingsView::new(&Config::default(), |_| None, false).providers[0].api_key_set);
     }
 
     #[test]

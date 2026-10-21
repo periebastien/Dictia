@@ -67,6 +67,7 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Default)]
 pub struct Vocab {
     prompt: String,
+    terms: Vec<String>,
     replacements: Vec<(Regex, String)>,
 }
 
@@ -80,6 +81,12 @@ impl Vocab {
             .collect::<Result<_>>()?;
         Ok(Self {
             prompt: build_prompt(&file.context, &file.terms),
+            terms: file
+                .terms
+                .iter()
+                .map(|t| t.trim().to_owned())
+                .filter(|t| !t.is_empty())
+                .collect(),
             replacements,
         })
     }
@@ -90,6 +97,18 @@ impl Vocab {
 
     pub fn prompt(&self) -> &str {
         &self.prompt
+    }
+
+    /// Termes à reconnaître (mots-clés des modèles qui en acceptent).
+    pub fn terms(&self) -> &[String] {
+        &self.terms
+    }
+
+    pub fn guidance(&self) -> crate::transcription::Guidance<'_> {
+        crate::transcription::Guidance {
+            prompt: &self.prompt,
+            terms: &self.terms,
+        }
     }
 
     pub fn rule_count(&self) -> usize {

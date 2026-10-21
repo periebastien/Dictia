@@ -1,7 +1,11 @@
 //! Backend Standard : `POST /v1/audio/transcriptions` avec `stream=true`.
 //!
 //! L'audio complet est envoyé en une requête multipart ; le texte revient en
-//! Server-Sent Events (`transcript.text.delta` puis `transcript.text.done`).
+//! Server-Sent Events. Deux formats sont pris en charge :
+//! - OpenAI (et serveurs compatibles) : `prompt`, événements
+//!   `transcript.text.delta` / `transcript.text.done` ;
+//! - Mistral (Voxtral) : termes en `context_bias`, événements
+//!   `transcription.text.delta` / `transcription.done`.
 
 use std::time::{Duration, Instant};
 
@@ -10,24 +14,25 @@ use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
 
 use super::sse::SseParser;
-use super::{AudioPayload, Backend, BoxFuture, Progress, ProgressFn};
-use crate::config::ApiConfig;
+use super::{AudioPayload, Backend, BoxFuture, Guidance, Progress, ProgressFn};
+use crate::config::{Dialect, Endpoint, Provider};
 
 pub struct StandardBackend {
     client: reqwest::Client,
+    provider: Provider,
     endpoint: String,
     warm_up_url: String,
-    api_key: String,
+    api_key: Option<String>,
     model: String,
     language: String,
 }
 
 impl StandardBackend {
-    pub fn new(api: &ApiConfig, api_key: String) -> Result<Self> {
+    pub fn new(target: &Endpoint, language: &str, timeout_secs: u64) -> Result<Self> {
         let client = reqwest::Client::builder()
             .user_agent(concat!("Dictia/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(api.timeout_secs.max(1)))
+            .timeout(Duration::from_secs(timeout_secs.max(1)))
             .tcp_nodelay(true)
             // Garde la connexion préchauffée ouverte pendant une longue dictée.
             .pool_idle_timeout(Duration::from_secs(300))
@@ -35,25 +40,27 @@ impl StandardBackend {
             .http2_keep_alive_while_idle(true)
             .build()
             .context("initialisation du client HTTP")?;
-        let base = api.base_url.trim_end_matches('/');
+        let base = target.base_url.trim_end_matches('/');
         Ok(Self {
             client,
+            provider: target.provider,
             endpoint: endpoint(base),
             warm_up_url: format!("{base}/models"),
-            api_key,
-            model: api.model.clone(),
-            language: api.language.clone(),
+            api_key: target.api_key.clone(),
+            model: target.model.clone(),
+            language: language.to_owned(),
         })
     }
 
     async fn run(
         &self,
         audio: AudioPayload,
-        prompt: &str,
+        guidance: Guidance<'_>,
         progress: &mut ProgressFn<'_>,
     ) -> Result<String> {
         let mut form = Form::new();
-        for (name, value) in form_fields(&self.model, &self.language, prompt) {
+        let dialect = self.provider.dialect();
+        for (name, value) in form_fields(dialect, &self.model, &self.language, guidance) {
             form = form.text(name, value);
         }
         let file = Part::bytes(audio.bytes)
@@ -61,11 +68,11 @@ impl StandardBackend {
             .mime_str(audio.mime)?;
         form = form.part("file", file);
 
-        let mut response = self
-            .client
-            .post(&self.endpoint)
-            .bearer_auth(&self.api_key)
-            .multipart(form)
+        let mut request = self.client.post(&self.endpoint).multipart(form);
+        if let Some(key) = &self.api_key {
+            request = request.bearer_auth(key);
+        }
+        let mut response = request
             .send()
             .await
             .context("envoi de la requête de transcription")?;
@@ -108,7 +115,11 @@ impl StandardBackend {
 
 impl Backend for StandardBackend {
     fn name(&self) -> &'static str {
-        "standard"
+        match self.provider {
+            Provider::OpenAi => "standard",
+            Provider::Mistral => "mistral",
+            Provider::Local => "local",
+        }
     }
 
     fn warm_up(&self) -> BoxFuture<'_, ()> {
@@ -130,10 +141,10 @@ impl Backend for StandardBackend {
     fn transcribe<'a>(
         &'a self,
         audio: AudioPayload,
-        prompt: &'a str,
+        guidance: Guidance<'a>,
         progress: &'a mut ProgressFn<'_>,
     ) -> BoxFuture<'a, Result<String>> {
-        Box::pin(self.run(audio, prompt, progress))
+        Box::pin(self.run(audio, guidance, progress))
     }
 }
 
@@ -143,17 +154,35 @@ pub fn endpoint(base_url: &str) -> String {
 }
 
 /// Champs texte de la requête multipart (hors fichier audio).
-pub fn form_fields(model: &str, language: &str, prompt: &str) -> Vec<(&'static str, String)> {
-    let mut fields = vec![
-        ("model", model.to_owned()),
-        ("response_format", "json".to_owned()),
-        ("stream", "true".to_owned()),
-    ];
+pub fn form_fields(
+    dialect: Dialect,
+    model: &str,
+    language: &str,
+    guidance: Guidance<'_>,
+) -> Vec<(&'static str, String)> {
+    let mut fields = vec![("model", model.to_owned())];
+    if dialect == Dialect::OpenAi {
+        fields.push(("response_format", "json".to_owned()));
+    }
+    fields.push(("stream", "true".to_owned()));
     if !language.trim().is_empty() {
         fields.push(("language", language.trim().to_owned()));
     }
-    if !prompt.trim().is_empty() {
-        fields.push(("prompt", prompt.trim().to_owned()));
+    match dialect {
+        Dialect::OpenAi => {
+            if !guidance.prompt.trim().is_empty() {
+                fields.push(("prompt", guidance.prompt.trim().to_owned()));
+            }
+        }
+        // Voxtral : une entrée `context_bias` par terme à reconnaître.
+        Dialect::Mistral => fields.extend(
+            guidance
+                .terms
+                .iter()
+                .map(|t| t.trim())
+                .filter(|t| !t.is_empty())
+                .map(|t| ("context_bias", t.to_owned())),
+        ),
     }
     fields
 }
@@ -187,7 +216,11 @@ pub fn parse_event(data: &str) -> Result<StreamEvent> {
         serde_json::from_str(data).with_context(|| format!("événement illisible : {data}"))?;
     Ok(match raw.kind.as_str() {
         "transcript.text.delta" => StreamEvent::Delta(raw.delta),
-        "transcript.text.done" => StreamEvent::Done(raw.text.unwrap_or_default()),
+        "transcript.text.done" | "transcription.done" => {
+            StreamEvent::Done(raw.text.unwrap_or_default())
+        }
+        // Mistral : le fragment est dans `text`.
+        "transcription.text.delta" => StreamEvent::Delta(raw.text.unwrap_or_default()),
         "error" => StreamEvent::Error(
             raw.error
                 .map(|e| e.message)
@@ -279,7 +312,12 @@ mod tests {
 
     #[test]
     fn form_fields_for_mvp_request() {
-        let fields = form_fields("gpt-4o-transcribe", "fr", " Vocabulaire : Dictia. ");
+        let terms = ["Dictia".to_owned()];
+        let guidance = Guidance {
+            prompt: " Vocabulaire : Dictia. ",
+            terms: &terms,
+        };
+        let fields = form_fields(Dialect::OpenAi, "gpt-4o-transcribe", "fr", guidance);
         assert_eq!(
             fields,
             [
@@ -294,7 +332,7 @@ mod tests {
 
     #[test]
     fn form_fields_omit_empty_language_and_prompt() {
-        let names: Vec<_> = form_fields("m", " ", "")
+        let names: Vec<_> = form_fields(Dialect::OpenAi, "m", " ", Guidance::default())
             .into_iter()
             .map(|(n, _)| n)
             .collect();
@@ -435,12 +473,103 @@ mod tests {
         (base, handle)
     }
 
-    fn backend(base_url: String) -> StandardBackend {
-        let api = ApiConfig {
-            base_url,
-            ..Default::default()
+    #[test]
+    fn mistral_fields_use_context_bias() {
+        let terms = ["JetEngine".to_owned(), " ".to_owned(), "n8n".to_owned()];
+        let guidance = Guidance {
+            prompt: "Contexte ignoré par Voxtral.",
+            terms: &terms,
         };
-        StandardBackend::new(&api, "sk-test".into()).unwrap()
+        assert_eq!(
+            form_fields(Dialect::Mistral, "voxtral-mini-latest", "fr", guidance),
+            [
+                ("model", "voxtral-mini-latest".to_owned()),
+                ("stream", "true".to_owned()),
+                ("language", "fr".to_owned()),
+                ("context_bias", "JetEngine".to_owned()),
+                ("context_bias", "n8n".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_mistral_stream_events() {
+        assert_eq!(
+            parse_event(r#"{"type":"transcription.text.delta","text":"Bon"}"#).unwrap(),
+            StreamEvent::Delta("Bon".into())
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"transcription.done","model":"voxtral-mini-latest","text":"Bonjour.","usage":{},"language":"fr"}"#).unwrap(),
+            StreamEvent::Done("Bonjour.".into())
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"transcription.language","audio_language":"fr"}"#).unwrap(),
+            StreamEvent::Ignored
+        );
+    }
+
+    fn backend_for(provider: Provider, base_url: String, key: Option<&str>) -> StandardBackend {
+        let target = Endpoint {
+            provider,
+            base_url,
+            model: "gpt-4o-transcribe".into(),
+            api_key: key.map(str::to_owned),
+        };
+        StandardBackend::new(&target, "fr", 30).unwrap()
+    }
+
+    fn backend(base_url: String) -> StandardBackend {
+        backend_for(Provider::OpenAi, base_url, Some("sk-test"))
+    }
+
+    #[tokio::test]
+    async fn end_to_end_mistral_request_without_prompt() {
+        let (base, server) = serve_once(concat!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+            "event: transcription.text.delta\ndata: {\"type\":\"transcription.text.delta\",\"text\":\"Salut\"}\n\n",
+            "event: transcription.done\ndata: {\"type\":\"transcription.done\",\"text\":\"Salut.\",\"model\":\"m\",\"usage\":{},\"language\":null}\n\n",
+        ))
+        .await;
+        let terms = ["n8n".to_owned()];
+        let mut noop = |_: Progress<'_>| {};
+        let text = backend_for(Provider::Mistral, base, Some("mk"))
+            .transcribe(
+                AudioPayload::flac(b"fLaC".to_vec()),
+                Guidance {
+                    prompt: "Contexte.",
+                    terms: &terms,
+                },
+                &mut noop,
+            )
+            .await
+            .unwrap();
+        assert_eq!(text, "Salut.");
+        let req = String::from_utf8_lossy(&server.await.unwrap()).into_owned();
+        assert!(req.contains("authorization: Bearer mk"), "{req}");
+        assert!(req.contains("name=\"context_bias\"\r\n\r\nn8n"), "{req}");
+        assert!(!req.contains("name=\"prompt\""), "{req}");
+        assert!(!req.contains("response_format"), "{req}");
+    }
+
+    #[tokio::test]
+    async fn local_server_without_key_sends_no_authorization() {
+        let (base, server) = serve_once(concat!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
+            "{\"text\":\"Local.\"}",
+        ))
+        .await;
+        let mut noop = |_: Progress<'_>| {};
+        let text = backend_for(Provider::Local, base, None)
+            .transcribe(
+                AudioPayload::flac(vec![0; 8]),
+                Guidance::default(),
+                &mut noop,
+            )
+            .await
+            .unwrap();
+        assert_eq!(text, "Local.");
+        let req = String::from_utf8_lossy(&server.await.unwrap()).to_lowercase();
+        assert!(!req.contains("authorization"), "{req}");
     }
 
     #[tokio::test]
@@ -457,7 +586,10 @@ mod tests {
         let text = backend
             .transcribe(
                 AudioPayload::flac(b"fLaC-fake".to_vec()),
-                "Vocabulaire : Dictia.",
+                Guidance {
+                    prompt: "Vocabulaire : Dictia.",
+                    terms: &[],
+                },
                 &mut progress,
             )
             .await
@@ -492,7 +624,11 @@ mod tests {
         .await;
         let mut noop = |_: Progress<'_>| {};
         let err = backend(base)
-            .transcribe(AudioPayload::flac(vec![0; 8]), "", &mut noop)
+            .transcribe(
+                AudioPayload::flac(vec![0; 8]),
+                Guidance::default(),
+                &mut noop,
+            )
             .await
             .unwrap_err();
         assert_eq!(

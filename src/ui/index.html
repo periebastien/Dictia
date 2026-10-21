@@ -25,6 +25,7 @@ header{height:52px;flex-shrink:0;display:flex;align-items:center;gap:10px;paddin
 .grow{flex-grow:1}
 .icon-btn{width:32px;height:32px;border:0;border-radius:6px;background:transparent;color:var(--muted);display:flex;align-items:center;justify-content:center}
 .icon-btn:hover{background:rgba(255,255,255,0.06);color:#fff}
+.icon-btn.on{color:var(--accent);background:rgba(255,255,255,0.06)}
 main{flex-grow:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px;user-select:text}
 main::-webkit-scrollbar{width:8px}main::-webkit-scrollbar-thumb{background:#33333C;border-radius:4px}
 .view{display:none;flex-direction:column;gap:12px}.view.on{display:flex}
@@ -90,10 +91,17 @@ select.field{width:auto;height:30px;padding:0 8px;font-size:12px}
 .notice{padding:10px 12px;border-radius:10px;background:rgba(124,131,255,0.12);border:1px solid rgba(124,131,255,0.35);font-size:12px;line-height:1.5}
 .toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);padding:6px 12px;border-radius:8px;background:#33333C;color:var(--text);font-size:12px;opacity:0;transition:opacity 200ms;pointer-events:none;max-width:320px;text-align:center}
 .toast.on{opacity:1}.toast.err{background:#7F1D1D}
-.perf{display:grid;grid-template-columns:minmax(0,1.3fr) repeat(4,minmax(0,1fr));gap:6px;align-items:center;min-height:34px;padding:4px 12px;font-size:12px;font-variant-numeric:tabular-nums}
-.perf span:not(:first-child){text-align:right}
-.perf.head{min-height:28px;font-size:11px;color:var(--muted)}
-.perf b{font-weight:600}
+.stat{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:10px;background:var(--panel);border:1px solid var(--line);font-variant-numeric:tabular-nums}
+.stat.best{border-color:var(--accent)}
+.stat .top{display:flex;align-items:baseline;gap:8px;font-size:12px}
+.stat .top b{flex-grow:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stat .top span{color:var(--muted);font-size:11px;flex-shrink:0}
+.stat .big{display:flex;align-items:baseline;gap:6px;font-size:20px;font-weight:600}
+.stat .big small{font-size:11px;font-weight:500;color:var(--muted)}
+.stat .bar{height:4px;border-radius:2px;background:#33333C;overflow:hidden}
+.stat .bar span{display:block;height:100%;border-radius:2px;background:var(--accent)}
+.stat .line{font-size:11px;color:var(--muted);line-height:1.5}
+.stat .tag{align-self:flex-start;font-size:10px}
 .footer{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)}
 nav{height:64px;flex-shrink:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--line);background:#17171C}
 nav button{position:relative;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--muted);font-size:11px;font-weight:500}
@@ -110,6 +118,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     <div class="brand">Dictia</div>
     <div id="status" class="pill idle"><span class="dot"></span><span id="status-text">Prêt</span></div>
     <div class="grow"></div>
+    <button class="icon-btn" id="btn-stats" aria-label="Statistiques" title="Statistiques"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-4M12 16V8M17 16v-7"/></svg></button>
     <button class="icon-btn" id="btn-min" aria-label="Réduire"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
     <button class="icon-btn" id="btn-close" aria-label="Fermer dans la zone de notification"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
@@ -165,23 +174,36 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       <p class="sub" style="line-height:1.5">Cliquez sur un raccourci puis appuyez sur la nouvelle combinaison (Échap pour annuler). Utilisez au moins une touche Ctrl, Alt, Maj ou Win.</p>
     </section>
 
+    <!-- Statistiques (icône de l'en-tête) -->
+    <section class="view" id="view-statistiques">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <h2>Statistiques par modèle</h2>
+        <p class="sub" style="line-height:1.5">Le chiffre principal est l'<b>attente prévue pour 10 s de parole</b> : comparable entre modèles, même si vos dictées n'ont pas la même longueur.</p>
+      </div>
+      <div id="perf" style="display:flex;flex-direction:column;gap:8px"></div>
+      <details class="sub" style="line-height:1.5">
+        <summary style="cursor:pointer">Comment c'est calculé</summary>
+        <p style="margin:6px 0 0">L'attente va de la fin de l'enregistrement au texte entièrement tapé, sans le temps où Ctrl, Alt ou Win restent enfoncés. Pour chaque modèle, elle est décomposée en une <b>part fixe</b> (réseau, mise en route) et un <b>coût par seconde de parole</b> envoyée, ajustés sur vos 200 dernières dictées par une méthode robuste (Theil-Sen) qui ignore les dictées anormalement lentes. Il faut au moins 5 dictées de durées variées (2 s d'écart) ; avant cela, la médiane brute est affichée.</p>
+      </details>
+    </section>
+
     <!-- Réglages -->
     <section class="view" id="view-reglages">
-      <div class="notice" id="key-notice" hidden>Ajoutez votre clé API OpenAI ci-dessous pour commencer à dicter.</div>
+      <div class="notice" id="key-notice" hidden></div>
       <div class="section">Transcription</div>
       <div class="list">
-        <div class="set"><div class="lbl"><span>Moteur</span></div>
+        <div class="set"><div class="lbl"><span>Fournisseur</span></div>
+          <div class="seg" id="provider"></div></div>
+        <div class="set" id="row-engine"><div class="lbl"><span>Moteur</span></div>
           <div class="seg" id="engine"><button data-engine="standard">Standard</button><button data-engine="realtime" title="Le texte arrive presque aussitôt au relâchement">Realtime</button></div></div>
-        <div class="set"><div class="lbl"><label for="model">Modèle</label></div>
-          <select id="model" class="field"></select></div>
-        <div class="set"><div class="lbl"><span>Clé API</span><span id="key-hint"></span></div>
-          <button class="btn ghost" style="height:28px;font-size:12px" id="key-edit">Modifier</button></div>
-        <form class="set" id="key-form" hidden>
-          <label for="key-input" class="sr">Clé API OpenAI</label>
-          <input id="key-input" class="field" type="password" placeholder="sk-…" autocomplete="off" style="height:32px;flex-grow:1;min-width:0">
-          <button class="btn" type="submit" style="height:32px">Enregistrer</button>
-        </form>
+        <div class="set"><div class="lbl"><label for="model">Modèle</label><span>Choisissez ou saisissez un nom</span></div>
+          <input id="model" class="field" list="model-list" autocomplete="off" spellcheck="false" style="width:190px;height:30px;font-size:12px">
+          <datalist id="model-list"></datalist></div>
+        <div class="set"><div class="lbl"><label for="url">Adresse de l'API</label></div>
+          <input id="url" class="field" autocomplete="off" spellcheck="false" style="width:190px;height:30px;font-size:12px"></div>
       </div>
+      <div class="section">Clés API</div>
+      <div class="list" id="keys"></div>
       <div class="section">Dictée</div>
       <div class="list">
         <div class="set"><div class="lbl"><span>Animation près du curseur</span><span>Écoute en rouge, transcription en orange</span></div>
@@ -200,9 +222,6 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
         <div class="set"><div class="lbl"><span>Couleur d'accent</span></div>
           <div class="swatches" id="swatches"></div></div>
       </div>
-      <div class="section">Performances</div>
-      <div class="list" id="perf"></div>
-      <p class="sub" style="line-height:1.5">Attente : de la fin de l'enregistrement (après l'éventuel prolongement) au texte entièrement tapé, sur les 200 dernières dictées de chaque moteur. « Repli » : dictées Realtime retranscrites par le moteur standard.</p>
       <div class="footer"><button class="link" id="open-folder">Ouvrir le dossier de configuration</button><span id="version"></span></div>
     </section>
   </main>
@@ -253,9 +272,12 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   }
 
   // ---- navigation ----
+  $('btn-stats').addEventListener('click', () => showTab('statistiques'));
   function showTab(tab) {
     document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
     document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'view-' + tab));
+    $('btn-stats').classList.toggle('on', tab === 'statistiques');
+    document.querySelector('main').scrollTop = 0;
   }
   document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
@@ -448,37 +470,62 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   bindToggle('t-space', (on) => ({ cmd: 'change', change: { kind: 'trailing_space', value: on } }));
   bindToggle('t-live', (on) => ({ cmd: 'change', change: { kind: 'live_typing', value: on } }));
   bindToggle('t-startup', (on) => ({ cmd: 'startup', value: on }));
-  $('model').addEventListener('change', (e) => send({ cmd: 'change', change: {
-    kind: state.settings.engine === 'realtime' ? 'realtime_model' : 'model', value: e.target.value } }));
+  const active = () => state.settings.providers.find((p) => p.id === state.settings.provider);
+  const realtimeOn = () => active().realtime && state.settings.engine === 'realtime';
+  $('model').addEventListener('change', (e) => {
+    const value = e.target.value.trim();
+    if (!value) { renderSettings(); return; }
+    send({ cmd: 'change', change: realtimeOn()
+      ? { kind: 'realtime_model', value }
+      : { kind: 'provider_model', provider: state.settings.provider, value } });
+  });
+  // La liste de suggestions ne montre que ce qui ressemble au texte saisi :
+  // on vide la case au clic pour tout afficher, et on la rétablit si rien
+  // n'est choisi.
+  $('model').addEventListener('focus', (e) => {
+    e.target.placeholder = e.target.value;
+    e.target.dataset.previous = e.target.value;
+    e.target.value = '';
+  });
+  $('model').addEventListener('blur', (e) => {
+    if (!e.target.value.trim()) e.target.value = e.target.dataset.previous || '';
+    e.target.placeholder = '';
+  });
+  $('url').addEventListener('change', (e) => send({ cmd: 'change', change: {
+    kind: 'provider_url', provider: state.settings.provider, value: e.target.value.trim() } }));
+  $('provider').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || b.dataset.provider === state.settings.provider) return;
+    send({ cmd: 'change', change: { kind: 'provider', value: b.dataset.provider } });
+  });
   $('engine').addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b || b.dataset.engine === state.settings.engine) return;
     send({ cmd: 'change', change: { kind: 'engine', value: b.dataset.engine } });
   });
   $('tail').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'release_tail', value: Number(e.target.value) } }));
-  $('key-edit').addEventListener('click', () => { $('key-form').hidden = false; $('key-input').focus(); });
-  $('key-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const v = $('key-input').value.trim();
-    if (!v) return;
-    send({ cmd: 'change', change: { kind: 'api_key', value: v } });
-    $('key-input').value = '';
-    $('key-form').hidden = true;
-  });
   $('open-folder').addEventListener('click', () => send({ cmd: 'open_folder' }));
 
   function renderSettings() {
     const s = state.settings;
     setAccent(s.accent);
-    const realtime = s.engine === 'realtime';
+    const p = active();
+    const realtime = realtimeOn();
+    $('provider').replaceChildren(...s.providers.map((x) => el('button', {
+      'data-provider': x.id, class: x.id === s.provider ? 'on' : '', text: x.name })));
+    $('row-engine').hidden = !p.realtime;
     document.querySelectorAll('#engine button').forEach((b) => b.classList.toggle('on', b.dataset.engine === s.engine));
-    const models = realtime ? s.realtime_models : s.models;
-    $('model').replaceChildren(...models.map((m) => el('option', { value: m, text: m })));
-    $('model').value = realtime ? s.realtime_model : s.model;
+    const models = realtime ? s.realtime_models : p.models;
+    $('model-list').replaceChildren(...models.map((m) => el('option', { value: m })));
+    $('model').value = realtime ? s.realtime_model : p.model;
+    $('url').value = p.base_url;
+    $('url').disabled = realtime;
+    renderKeys();
     $('tail').replaceChildren(...s.release_tails.map((ms) => el('option', { value: String(ms), text: ms ? ms + ' ms' : 'Non' })));
     $('tail').value = String(s.release_tail_ms);
-    $('key-hint').textContent = s.api_key_set ? s.api_key_hint : 'Non renseignée';
-    $('key-notice').hidden = s.api_key_set;
+    const missing = p.needs_key && !p.api_key_set;
+    $('key-notice').hidden = !missing;
+    $('key-notice').textContent = 'Ajoutez votre clé API ' + p.name + ' ci-dessous pour commencer à dicter.';
     setToggle('t-indicator', s.indicator);
     setToggle('t-space', s.trailing_space);
     setToggle('t-live', s.live_typing);
@@ -493,7 +540,44 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     renderShortcuts();
   }
 
-  // ---- performances ----
+  // ---- clés API ----
+  let editingKey = null;
+  function renderKeys() {
+    const s = state.settings;
+    $('keys').replaceChildren(...s.providers.map((p) => {
+      if (editingKey === p.id) {
+        const input = el('input', { class: 'field', type: 'password', autocomplete: 'off',
+          placeholder: p.needs_key ? 'Collez la clé ' + p.name : 'Clé facultative',
+          'aria-label': 'Clé API ' + p.name, style: 'height:32px;flex-grow:1;min-width:0' });
+        const form = el('form', { class: 'set', onsubmit: (e) => {
+          e.preventDefault();
+          send({ cmd: 'change', change: { kind: 'provider_key', provider: p.id, value: input.value.trim() } });
+          editingKey = null;
+          renderKeys();
+        } }, [
+          input,
+          el('button', { class: 'btn ghost', type: 'button', style: 'height:32px', text: 'Annuler',
+            onclick: () => { editingKey = null; renderKeys(); } }),
+          el('button', { class: 'btn', type: 'submit', style: 'height:32px', text: 'OK' })
+        ]);
+        setTimeout(() => input.focus(), 0);
+        return form;
+      }
+      const hint = p.api_key_set ? p.api_key_hint : (p.needs_key ? 'Non renseignée' : 'Facultative');
+      return el('div', { class: 'set' }, [
+        el('div', { class: 'lbl' }, [
+          el('span', { text: p.name + (p.id === s.provider ? ' · actif' : '') }),
+          el('span', { text: hint })
+        ]),
+        el('button', { class: 'btn ghost', style: 'height:28px;font-size:12px',
+          text: p.api_key_set ? 'Modifier' : 'Ajouter',
+          'aria-label': (p.api_key_set ? 'Modifier' : 'Ajouter') + ' la clé ' + p.name,
+          onclick: () => { editingKey = p.id; renderKeys(); } })
+      ]);
+    }));
+  }
+
+  // ---- statistiques ----
   function secs(ms) { return ms == null ? '–' : (ms / 1000).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' s'; }
   function renderStats(stats) {
     const box = $('perf');
@@ -501,15 +585,24 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       box.replaceChildren(el('div', { class: 'empty', text: 'Les mesures apparaîtront après vos premières dictées.' }));
       return;
     }
-    const head = el('div', { class: 'perf head' }, ['Moteur', 'Médiane', 'Moyenne', '90 %', 'Dictées'].map((t) => el('span', { text: t })));
-    box.replaceChildren(head, ...stats.map((s) => el('div', { class: 'perf', title:
-      '1er texte (médiane) : ' + secs(s.first_text_median_ms) + ' · parole (médiane) : ' + secs(s.speech_median_ms) }, [
-      el('b', { text: s.engine }),
-      el('span', { text: secs(s.wait_median_ms) }),
-      el('span', { text: secs(s.wait_mean_ms) }),
-      el('span', { text: secs(s.wait_p90_ms) }),
-      el('span', { text: String(s.count) })
-    ])));
+    const max = Math.max(...stats.map((s) => s.reference_ms), 1);
+    const bestFitted = stats.find((s) => s.fitted);
+    box.replaceChildren(...stats.map((s) => {
+      const lines = [];
+      if (s.fitted) {
+        lines.push(el('div', { class: 'line', text: 'Part fixe ' + secs(s.fixed_ms) + ' + ' + s.per_second_ms + ' ms par seconde de parole' }));
+      } else {
+        lines.push(el('div', { class: 'line', text: 'Estimation après 5 dictées de durées variées : en attendant, médiane brute.' }));
+      }
+      lines.push(el('div', { class: 'line', text: 'Mesuré : médiane ' + secs(s.wait_median_ms) + ' · 9 sur 10 sous ' + secs(s.wait_p90_ms)
+        + ' · parole médiane ' + secs(s.speech_median_ms) + (s.first_text_median_ms != null ? ' · 1er texte ' + secs(s.first_text_median_ms) : '') }));
+      return el('div', { class: 'stat' + (s === bestFitted && stats.filter((x) => x.fitted).length > 1 ? ' best' : '') }, [
+        el('div', { class: 'top' }, [el('b', { text: s.label, title: s.label }), el('span', { text: s.count + (s.count > 1 ? ' dictées' : ' dictée') })]),
+        el('div', { class: 'big' }, [secs(s.reference_ms), el('small', { text: s.fitted ? 'pour 10 s de parole' : 'médiane (provisoire)' })]),
+        el('div', { class: 'bar' }, [el('span', { style: 'width:' + Math.max(3, Math.round(100 * s.reference_ms / max)) + '%' })]),
+        ...lines
+      ]);
+    }));
   }
 
   // ---- messages venant de Dictia ----

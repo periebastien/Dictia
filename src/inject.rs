@@ -66,44 +66,52 @@ pub fn can_type_live(target: Option<crate::platform::WindowHandle>) -> bool {
 
 /// Applique une correction de la frappe en direct. `last` : correction
 /// finale, qui attend le relâchement des touches et rend le focus.
+/// Renvoie le temps passé à attendre les touches.
 #[cfg(windows)]
 pub fn apply_correction(
     target: Option<crate::platform::WindowHandle>,
     erase: usize,
     text: &str,
     last: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<std::time::Duration> {
     use std::time::Duration;
 
     use crate::platform;
 
     if erase == 0 && text.is_empty() {
-        return Ok(());
+        return Ok(Duration::ZERO);
     }
+    let mut keys_wait = Duration::ZERO;
     if last {
-        platform::wait_modifiers_released(Duration::from_millis(1500));
+        keys_wait = platform::wait_modifiers_released(Duration::from_millis(1500));
         if let Some(target) = target {
             platform::focus_window(target);
         }
     }
-    platform::send_keystrokes(&correction(erase, text))
+    platform::send_keystrokes(&correction(erase, text))?;
+    Ok(keys_wait)
 }
 
-/// Rend le focus à `target` puis tape `text`.
+/// Rend le focus à `target` puis tape `text`. Renvoie le temps passé à
+/// attendre le relâchement des touches.
 #[cfg(windows)]
-pub fn type_into(target: Option<crate::platform::WindowHandle>, text: &str) -> anyhow::Result<()> {
+pub fn type_into(
+    target: Option<crate::platform::WindowHandle>,
+    text: &str,
+) -> anyhow::Result<std::time::Duration> {
     use std::time::Duration;
 
     use crate::platform;
 
     // Ctrl/Alt encore enfoncés transformeraient les frappes en raccourcis.
-    platform::wait_modifiers_released(Duration::from_millis(1500));
+    let keys_wait = platform::wait_modifiers_released(Duration::from_millis(1500));
     if let Some(target) = target {
         if !platform::focus_window(target) {
             log::warn!("impossible de rendre le focus à la fenêtre d'origine");
         }
     }
-    platform::send_keystrokes(&plan(text))
+    platform::send_keystrokes(&plan(text))?;
+    Ok(keys_wait)
 }
 
 #[cfg(test)]
