@@ -67,8 +67,8 @@ h2{margin:0;font-size:14px;font-weight:600}
 .addrep .field{height:32px;background:#1F1F25}
 .set{display:flex;align-items:center;gap:10px;min-height:46px;padding:6px 10px 6px 12px}
 .set .lbl{flex-grow:1;min-width:0;display:flex;flex-direction:column;gap:1px}
-.set .lbl span:first-child{font-size:13px;color:var(--text)}
-.set .lbl span+span{font-size:11px;color:var(--muted)}
+.set .lbl>:first-child{font-size:13px;color:var(--text)}
+.set .lbl>*+*{font-size:11px;color:var(--muted)}
 .keys{display:flex;gap:4px;padding:4px;border:0;border-radius:6px;background:transparent}
 .keys:hover{background:rgba(255,255,255,0.05)}
 kbd{min-width:14px;height:22px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;background:var(--chip);border:1px solid rgba(255,255,255,0.08);border-bottom-width:2px;color:#E4E4E7;font:inherit;font-size:11px;font-weight:500}
@@ -182,6 +182,8 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       <div class="list">
         <div class="set"><div class="lbl"><span>Animation près du curseur</span><span>Écoute en rouge, transcription en orange</span></div>
           <button class="toggle" id="t-indicator" aria-label="Animation près du curseur" aria-pressed="false"><span></span></button></div>
+        <div class="set"><div class="lbl"><label for="tail">Prolonger après relâchement</label><span>Ne coupe pas la fin des phrases</span></div>
+          <select id="tail" class="field"></select></div>
         <div class="set"><div class="lbl"><span>Espace après le texte</span><span>Pour enchaîner les dictées</span></div>
           <button class="toggle" id="t-space" aria-label="Espace après le texte" aria-pressed="false"><span></span></button></div>
       </div>
@@ -437,6 +439,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   bindToggle('t-space', (on) => ({ cmd: 'change', change: { kind: 'trailing_space', value: on } }));
   bindToggle('t-startup', (on) => ({ cmd: 'startup', value: on }));
   $('model').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'model', value: e.target.value } }));
+  $('tail').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'release_tail', value: Number(e.target.value) } }));
   $('key-edit').addEventListener('click', () => { $('key-form').hidden = false; $('key-input').focus(); });
   $('key-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -453,6 +456,8 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     setAccent(s.accent);
     $('model').replaceChildren(...s.models.map((m) => el('option', { value: m, text: m })));
     $('model').value = s.model;
+    $('tail').replaceChildren(...s.release_tails.map((ms) => el('option', { value: String(ms), text: ms ? ms + ' ms' : 'Non' })));
+    $('tail').value = String(s.release_tail_ms);
     $('key-hint').textContent = s.api_key_set ? s.api_key_hint : 'Non renseignée';
     $('key-notice').hidden = s.api_key_set;
     setToggle('t-indicator', s.indicator);

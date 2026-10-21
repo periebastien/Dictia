@@ -97,6 +97,7 @@ push_to_talk = "Alt+Maj+Espace"       # maintenir pour parler ; "" = désactivé
 silence_threshold_db = -50.0          # seuil de silence (dBFS)
 padding_ms = 150                      # marge gardée autour de la parole
 min_speech_ms = 200                   # en dessous : rien n'est envoyé
+release_tail_ms = 300                 # écoute prolongée après relâchement (0 = non)
 
 [inject]
 trailing_space = true                 # espace après le texte tapé
@@ -152,7 +153,10 @@ configuration.
    - **mode bascule** : **Ctrl+Alt+Espace** (l'icône devient rouge), parlez,
      puis **Ctrl+Alt+Espace** de nouveau ;
    - **maintenir pour parler** : gardez **Alt+Maj+Espace** enfoncé pendant que
-     vous parlez, relâchez quand vous avez fini.
+     vous parlez, relâchez quand vous avez fini. L'écoute continue 300 ms
+     après le relâchement (réglable dans Réglages → *Prolonger après
+     relâchement*) pour ne pas couper la fin de la phrase ; ré-appuyer pendant
+     ce délai prolonge la même dictée.
 4. L'icône devient orange, puis le texte est tapé dans la fenêtre d'origine,
    même si vous en avez changé entre-temps.
 

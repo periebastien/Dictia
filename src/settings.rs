@@ -13,6 +13,8 @@ use crate::vocab::VocabFile;
 
 /// Modèles proposés dans l'interface.
 pub const MODELS: [&str; 3] = ["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1"];
+/// Durées de prolongement proposées (ms).
+pub const RELEASE_TAILS: [u32; 5] = [0, 150, 300, 500, 800];
 /// Couleurs d'accent proposées.
 pub const ACCENTS: [&str; 4] = ["#7C83FF", "#38BDF8", "#34D399", "#F59E0B"];
 
@@ -26,6 +28,7 @@ pub enum Change {
     PushToTalk { value: String },
     Indicator { value: bool },
     TrailingSpace { value: bool },
+    ReleaseTail { value: u32 },
     Accent { value: String },
 }
 
@@ -97,6 +100,12 @@ pub fn apply_config_change(text: &str, current: &Config, change: &Change) -> Res
         Change::Indicator { value: v } => table(&mut doc, "indicator")["enabled"] = value(*v),
         Change::TrailingSpace { value: v } => {
             table(&mut doc, "inject")["trailing_space"] = value(*v)
+        }
+        Change::ReleaseTail { value: v } => {
+            if *v > 2_000 {
+                bail!("prolongement trop long : {v} ms (2 000 ms au plus)");
+            }
+            table(&mut doc, "audio")["release_tail_ms"] = value(i64::from(*v));
         }
         Change::Accent { value: v } => {
             if !ACCENTS.iter().any(|a| a.eq_ignore_ascii_case(v)) {
@@ -241,6 +250,13 @@ mod tests {
             .accent,
             "#34D399"
         );
+        assert_eq!(
+            apply(Change::ReleaseTail { value: 500 })
+                .unwrap()
+                .audio
+                .release_tail_ms,
+            500
+        );
         let cfg = apply(Change::PushToTalk {
             value: "Ctrl+Maj+P".into(),
         })
@@ -265,6 +281,7 @@ mod tests {
             value: "#000000".into()
         })
         .is_err());
+        assert!(apply(Change::ReleaseTail { value: 5_000 }).is_err());
         assert!(apply(Change::Shortcut { value: "".into() }).is_err());
         // Identique au raccourci push-to-talk par défaut.
         assert!(apply(Change::Shortcut {

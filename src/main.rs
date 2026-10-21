@@ -14,6 +14,7 @@ mod audio;
 mod config;
 #[cfg(windows)]
 mod controller;
+mod dictation;
 mod history;
 mod hotkey;
 mod inject;
