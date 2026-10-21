@@ -45,10 +45,20 @@ const RED: [f32; 3] = [0.973, 0.443, 0.443];
 const ORANGE: [f32; 3] = [0.961, 0.620, 0.043];
 const WHITE: [f32; 3] = [0.95, 0.95, 0.95];
 
+/// Taille en pixels physiques pour un facteur d'échelle d'écran.
+pub fn size(scale: f32) -> (u32, u32) {
+    let scale = scale.max(0.5);
+    (
+        (WIDTH as f32 * scale).round() as u32,
+        (HEIGHT as f32 * scale).round() as u32,
+    )
+}
+
 /// Image de l'indicateur au temps `t` (secondes), en BGRA prémultiplié
-/// (format attendu par `UpdateLayeredWindow`), ligne par ligne de haut en bas.
-pub fn render(animation: Animation, t: f32, level: f32) -> Vec<u8> {
-    let mut canvas = Canvas::new();
+/// (format attendu par `UpdateLayeredWindow`), ligne par ligne de haut en
+/// bas, de taille [`size`]`(scale)`. Le dessin est décrit en pixels logiques.
+pub fn render(animation: Animation, t: f32, level: f32, scale: f32) -> Vec<u8> {
+    let mut canvas = Canvas::new(scale);
     let (w, h) = (WIDTH as f32, HEIGHT as f32);
     canvas.fill(BACKGROUND, |x, y| {
         in_round_rect(x, y, 0.0, 0.0, w, h, h / 2.0)
@@ -113,24 +123,31 @@ fn in_round_rect(x: f32, y: f32, x0: f32, y0: f32, w: f32, h: f32, r: f32) -> bo
 /// suréchantillonnage 4×4.
 struct Canvas {
     px: Vec<[f32; 4]>,
+    width: u32,
+    height: u32,
+    scale: f32,
 }
 
 impl Canvas {
-    fn new() -> Self {
+    fn new(scale: f32) -> Self {
+        let (width, height) = size(scale);
         Self {
-            px: vec![[0.0; 4]; (WIDTH * HEIGHT) as usize],
+            px: vec![[0.0; 4]; (width * height) as usize],
+            width,
+            height,
+            scale: width as f32 / WIDTH as f32,
         }
     }
 
     fn fill(&mut self, color: [f32; 4], inside: impl Fn(f32, f32) -> bool) {
         const SS: u32 = 4;
-        for py in 0..HEIGHT {
-            for px in 0..WIDTH {
+        for py in 0..self.height {
+            for px in 0..self.width {
                 let mut hits = 0;
                 for sy in 0..SS {
                     for sx in 0..SS {
-                        let x = px as f32 + (sx as f32 + 0.5) / SS as f32;
-                        let y = py as f32 + (sy as f32 + 0.5) / SS as f32;
+                        let x = (px as f32 + (sx as f32 + 0.5) / SS as f32) / self.scale;
+                        let y = (py as f32 + (sy as f32 + 0.5) / SS as f32) / self.scale;
                         if inside(x, y) {
                             hits += 1;
                         }
@@ -140,7 +157,7 @@ impl Canvas {
                     continue;
                 }
                 let a = color[3] * hits as f32 / (SS * SS) as f32;
-                let dst = &mut self.px[(py * WIDTH + px) as usize];
+                let dst = &mut self.px[(py * self.width + px) as usize];
                 let out_a = a + dst[3] * (1.0 - a);
                 for c in 0..3 {
                     dst[c] = (color[c] * a + dst[c] * dst[3] * (1.0 - a)) / out_a;
@@ -192,7 +209,7 @@ mod tests {
 
     #[test]
     fn frame_is_a_pill_with_transparent_corners() {
-        let img = render(Animation::Listening, 0.0, 0.5);
+        let img = render(Animation::Listening, 0.0, 0.5, 1.0);
         assert_eq!(img.len(), (WIDTH * HEIGHT * 4) as usize);
         assert_eq!(pixel(&img, 0, 0)[3], 0);
         assert_eq!(pixel(&img, WIDTH - 1, HEIGHT - 1)[3], 0);
@@ -200,8 +217,20 @@ mod tests {
     }
 
     #[test]
+    fn scales_for_high_dpi_screens() {
+        assert_eq!(size(1.0), (WIDTH, HEIGHT));
+        assert_eq!(size(1.5), (90, 39));
+        let img = render(Animation::Listening, 0.0, 0.0, 1.5);
+        assert_eq!(img.len(), 90 * 39 * 4);
+        // Le point rouge est au même endroit, en coordonnées logiques.
+        let i = ((20 * 90 + 20) * 4) as usize; // (13, 13) × 1,5 ≈ (20, 20)
+        assert_eq!(img[i + 3], 255);
+        assert!(img[i + 2] > 200);
+    }
+
+    #[test]
     fn premultiplied_alpha_is_consistent() {
-        let img = render(Animation::Thinking, 0.3, 0.0);
+        let img = render(Animation::Thinking, 0.3, 0.0, 1.0);
         for p in img.chunks_exact(4) {
             assert!(p[0] <= p[3] && p[1] <= p[3] && p[2] <= p[3], "{p:?}");
         }
@@ -209,7 +238,7 @@ mod tests {
 
     #[test]
     fn listening_dot_is_red() {
-        let [b, g, r, a] = pixel(&render(Animation::Listening, 0.0, 0.0), 13, 13);
+        let [b, g, r, a] = pixel(&render(Animation::Listening, 0.0, 0.0, 1.0), 13, 13);
         assert_eq!(a, 255);
         assert!(r > 200 && g < 150 && b < 150, "{:?}", (r, g, b));
     }
@@ -217,8 +246,8 @@ mod tests {
     #[test]
     fn bars_grow_with_voice_level() {
         let lit = |img: &[u8]| (0..HEIGHT).filter(|&y| pixel(img, 27, y)[0] > 200).count();
-        let quiet = render(Animation::Listening, 0.0, 0.0);
-        let loud = render(Animation::Listening, 0.0, 1.0);
+        let quiet = render(Animation::Listening, 0.0, 0.0, 1.0);
+        let loud = render(Animation::Listening, 0.0, 1.0, 1.0);
         assert!(
             lit(&loud) > lit(&quiet) + 6,
             "{} vs {}",
@@ -229,12 +258,12 @@ mod tests {
 
     #[test]
     fn the_two_animations_look_different_and_move() {
-        let listening = render(Animation::Listening, 0.2, 0.5);
-        let thinking = render(Animation::Thinking, 0.2, 0.5);
+        let listening = render(Animation::Listening, 0.2, 0.5, 1.0);
+        let thinking = render(Animation::Thinking, 0.2, 0.5, 1.0);
         assert_ne!(listening, thinking);
-        assert_ne!(thinking, render(Animation::Thinking, 0.5, 0.5));
+        assert_ne!(thinking, render(Animation::Thinking, 0.5, 0.5, 1.0));
         // Transcription : orange, pas de rouge.
-        let [b, g, r, _] = pixel(&render(Animation::Thinking, 0.0, 0.0), 30, 13);
+        let [b, g, r, _] = pixel(&render(Animation::Thinking, 0.0, 0.0, 1.0), 30, 13);
         assert!(r > 150 && r > g && g > 2 * b, "{:?}", (r, g, b));
     }
 }

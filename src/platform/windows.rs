@@ -40,7 +40,7 @@ use crate::inject::Keystroke;
 pub struct WindowHandle(isize);
 
 impl WindowHandle {
-    fn hwnd(self) -> HWND {
+    pub(super) fn hwnd(self) -> HWND {
         HWND(self.0 as *mut _)
     }
 }

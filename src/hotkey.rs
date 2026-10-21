@@ -110,11 +110,12 @@ impl Binding {
 }
 
 #[cfg(windows)]
-pub use self::win::register;
+pub use self::win::Registration;
 
 #[cfg(windows)]
 mod win {
     use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     use anyhow::{anyhow, Context, Result};
     use global_hotkey::hotkey::HotKey;
@@ -122,42 +123,116 @@ mod win {
 
     use super::{normalize, Action, Binding, Mode};
 
-    /// Garde les raccourcis enregistrés tant qu'elle vit.
+    type Table = Arc<Mutex<HashMap<u32, Binding>>>;
+
+    /// Raccourcis enregistrés auprès de Windows, modifiables à chaud.
     pub struct Registration {
-        _manager: GlobalHotKeyManager,
+        manager: GlobalHotKeyManager,
+        table: Table,
+        active: Vec<(String, HotKey, Mode)>,
+        suspended: bool,
     }
 
-    /// Enregistre les raccourcis ; `on_action` est appelé depuis la boucle de
-    /// messages (appui) ou un thread de `global-hotkey` (relâchement).
-    pub fn register(
-        bindings: &[(String, Mode)],
-        on_action: impl Fn(Action) + Send + Sync + 'static,
-    ) -> Result<Registration> {
-        let manager =
-            GlobalHotKeyManager::new().context("initialisation des raccourcis globaux")?;
-        let mut by_id = HashMap::new();
-        for (shortcut, mode) in bindings {
-            let hotkey: HotKey = normalize(shortcut)?
-                .parse()
-                .map_err(|e| anyhow!("raccourci {shortcut:?} non reconnu : {e}"))?;
-            manager.register(hotkey).map_err(|e| {
-                anyhow!("le raccourci {shortcut} est indisponible (déjà utilisé par une autre application ?) : {e}")
-            })?;
-            by_id.insert(hotkey.id(), Binding::new(*mode));
+    fn parse(shortcut: &str) -> Result<HotKey> {
+        normalize(shortcut)?
+            .parse()
+            .map_err(|e| anyhow!("raccourci {shortcut:?} non reconnu : {e}"))
+    }
+
+    impl Registration {
+        /// Enregistre les raccourcis ; `on_action` est appelé depuis la boucle
+        /// de messages (appui) ou un thread de `global-hotkey` (relâchement).
+        pub fn new(
+            bindings: &[(String, Mode)],
+            on_action: impl Fn(Action) + Send + Sync + 'static,
+        ) -> Result<Self> {
+            let manager =
+                GlobalHotKeyManager::new().context("initialisation des raccourcis globaux")?;
+            let table: Table = Arc::default();
+            let handler_table = Arc::clone(&table);
+            GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
+                let action = {
+                    let Ok(table) = handler_table.lock() else {
+                        return;
+                    };
+                    let Some(binding) = table.get(&event.id()) else {
+                        return;
+                    };
+                    match event.state() {
+                        HotKeyState::Pressed => binding.on_pressed(),
+                        HotKeyState::Released => binding.on_released(),
+                    }
+                };
+                if let Some(action) = action {
+                    on_action(action);
+                }
+            }));
+            let mut registration = Self {
+                manager,
+                table,
+                active: Vec::new(),
+                suspended: false,
+            };
+            registration.replace(bindings)?;
+            Ok(registration)
         }
-        GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
-            let Some(binding) = by_id.get(&event.id()) else {
-                return;
-            };
-            let action = match event.state() {
-                HotKeyState::Pressed => binding.on_pressed(),
-                HotKeyState::Released => binding.on_released(),
-            };
-            if let Some(action) = action {
-                on_action(action);
+
+        fn register_all(&self, list: &[(String, HotKey, Mode)]) -> Result<()> {
+            for (i, (shortcut, hotkey, _)) in list.iter().enumerate() {
+                if let Err(e) = self.manager.register(*hotkey) {
+                    for (_, done, _) in &list[..i] {
+                        let _ = self.manager.unregister(*done);
+                    }
+                    return Err(anyhow!(
+                        "le raccourci {shortcut} est indisponible (déjà utilisé par une autre application ?) : {e}"
+                    ));
+                }
             }
-        }));
-        Ok(Registration { _manager: manager })
+            Ok(())
+        }
+
+        fn unregister_all(&self) {
+            for (_, hotkey, _) in &self.active {
+                let _ = self.manager.unregister(*hotkey);
+            }
+        }
+
+        /// Remplace les raccourcis. En cas d'échec, les anciens restent actifs.
+        pub fn replace(&mut self, bindings: &[(String, Mode)]) -> Result<()> {
+            let next = bindings
+                .iter()
+                .map(|(s, m)| Ok((s.clone(), parse(s)?, *m)))
+                .collect::<Result<Vec<_>>>()?;
+            if !self.suspended {
+                self.unregister_all();
+                if let Err(e) = self.register_all(&next) {
+                    let _ = self.register_all(&self.active);
+                    return Err(e);
+                }
+            }
+            if let Ok(mut table) = self.table.lock() {
+                *table = next
+                    .iter()
+                    .map(|(_, h, m)| (h.id(), Binding::new(*m)))
+                    .collect();
+            }
+            self.active = next;
+            Ok(())
+        }
+
+        /// Désactive temporairement les raccourcis (saisie d'une combinaison
+        /// dans l'interface).
+        pub fn suspend(&mut self, on: bool) {
+            if on == self.suspended {
+                return;
+            }
+            if on {
+                self.unregister_all();
+            } else if let Err(e) = self.register_all(&self.active) {
+                log::error!("{e:#}");
+            }
+            self.suspended = on;
+        }
     }
 }
 
