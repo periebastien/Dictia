@@ -85,7 +85,9 @@ Après une modification à la main, relancez Dictia.
 [api]
 api_key = ""                          # vide → variable OPENAI_API_KEY
 base_url = "https://api.openai.com/v1"
-model = "gpt-4o-transcribe"
+engine = "standard"                   # ou "realtime" : envoi pendant la dictée
+model = "gpt-4o-transcribe"           # modèle du moteur standard
+realtime_model = "gpt-live-transcribe" # modèle du moteur realtime
 language = "fr"
 timeout_secs = 30
 
@@ -168,6 +170,18 @@ la dictée :
 
 Elle disparaît dès que le texte est tapé. Pour la masquer :
 `[indicator] enabled = false`.
+
+### Moteur standard ou Realtime
+
+- **Standard** (par défaut) : l'audio est envoyé quand vous avez fini de
+  parler (FLAC, silences retirés), puis le texte revient en streaming.
+- **Realtime** (Réglages → Moteur) : l'audio part **pendant** que vous parlez,
+  sur une WebSocket (`/v1/realtime?intent=transcription`, PCM 24 kHz). Au
+  relâchement, il ne reste qu'à valider : le texte arrive presque aussitôt.
+  Avec `gpt-live-transcribe`, vos termes du Vocabulaire sont transmis comme
+  mots-clés ; avec `gpt-4o-transcribe`, comme prompt. Si la session en direct
+  échoue (réseau, modèle indisponible), la dictée est automatiquement
+  retranscrite par le moteur standard : rien n'est perdu.
 
 ### La fenêtre Dictia
 

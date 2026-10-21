@@ -46,11 +46,6 @@ pub fn speech_bounds(samples: &[f32], rate: u32, cfg: &AudioConfig) -> Option<Ra
     Some(start..end)
 }
 
-/// Raccourci : sous-tranche contenant la parole.
-pub fn trim_silence<'a>(samples: &'a [f32], rate: u32, cfg: &AudioConfig) -> Option<&'a [f32]> {
-    speech_bounds(samples, rate, cfg).map(|r| &samples[r])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,6 +117,6 @@ mod tests {
         let mut s = vec![0.0; 8_000];
         s.extend(tone(40, 0.5)); // 40 ms < 100 ms minimum
         s.extend(vec![0.0; 8_000]);
-        assert_eq!(trim_silence(&s, RATE, &cfg()), None);
+        assert_eq!(speech_bounds(&s, RATE, &cfg()), None);
     }
 }
