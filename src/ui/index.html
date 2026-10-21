@@ -457,6 +457,18 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       ? { kind: 'realtime_model', value }
       : { kind: 'provider_model', provider: state.settings.provider, value } });
   });
+  // La liste de suggestions ne montre que ce qui ressemble au texte saisi :
+  // on vide la case au clic pour tout afficher, et on la rétablit si rien
+  // n'est choisi.
+  $('model').addEventListener('focus', (e) => {
+    e.target.placeholder = e.target.value;
+    e.target.dataset.previous = e.target.value;
+    e.target.value = '';
+  });
+  $('model').addEventListener('blur', (e) => {
+    if (!e.target.value.trim()) e.target.value = e.target.dataset.previous || '';
+    e.target.placeholder = '';
+  });
   $('url').addEventListener('change', (e) => send({ cmd: 'change', change: {
     kind: 'provider_url', provider: state.settings.provider, value: e.target.value.trim() } }));
   $('provider').addEventListener('click', (e) => {
