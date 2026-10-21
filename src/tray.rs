@@ -89,7 +89,7 @@ fn in_microphone(x: f32, y: f32) -> bool {
 }
 
 #[cfg(windows)]
-pub use self::win::{Tray, MENU_OPEN_CONFIG, MENU_QUIT};
+pub use self::win::{Tray, MENU_OPEN_CONFIG, MENU_OPEN_UI, MENU_QUIT};
 
 #[cfg(windows)]
 mod win {
@@ -99,6 +99,7 @@ mod win {
 
     use super::{icon_rgba, TrayState, ICON_SIZE};
 
+    pub const MENU_OPEN_UI: &str = "open-ui";
     pub const MENU_OPEN_CONFIG: &str = "open-config";
     pub const MENU_QUIT: &str = "quit";
 
@@ -120,6 +121,7 @@ mod win {
 
             let menu = Menu::new();
             let title = MenuItem::new(concat!("Dictia ", env!("CARGO_PKG_VERSION")), false, None);
+            let open_ui = MenuItem::with_id(MENU_OPEN_UI, "Ouvrir Dictia", true, None);
             let open = MenuItem::with_id(
                 MENU_OPEN_CONFIG,
                 "Ouvrir le dossier de configuration",
@@ -127,11 +129,19 @@ mod win {
                 None,
             );
             let quit = MenuItem::with_id(MENU_QUIT, "Quitter", true, None);
-            menu.append_items(&[&title, &PredefinedMenuItem::separator(), &open, &quit])
-                .context("création du menu")?;
+            menu.append_items(&[
+                &title,
+                &PredefinedMenuItem::separator(),
+                &open_ui,
+                &open,
+                &quit,
+            ])
+            .context("création du menu")?;
 
             let icon = TrayIconBuilder::new()
                 .with_menu(Box::new(menu))
+                // Clic gauche : ouvre la fenêtre ; clic droit : menu.
+                .with_menu_on_left_click(false)
                 .with_tooltip(TrayState::Idle.tooltip(shortcut))
                 .with_icon(icons[TrayState::Idle.index()].clone())
                 .build()
@@ -142,6 +152,14 @@ mod win {
                 shown: TrayState::Idle,
                 shortcut: shortcut.to_owned(),
             })
+        }
+
+        /// Met à jour les raccourcis cités dans l'infobulle.
+        pub fn set_shortcuts(&mut self, shortcut: &str) {
+            self.shortcut = shortcut.to_owned();
+            let _ = self
+                .icon
+                .set_tooltip(Some(self.shown.tooltip(&self.shortcut)));
         }
 
         pub fn set_state(&mut self, state: TrayState) {

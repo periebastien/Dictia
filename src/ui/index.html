@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Dictia</title>
+<style>
+:root{--accent:#7C83FF;--bg:#1B1B21;--panel:#24242B;--chip:#2E2E37;--text:#F2F2F5;--muted:#A1A1AA;--soft:#D4D4D8;--line:rgba(255,255,255,0.06)}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;font-size:13px;overflow:hidden;user-select:none}
+button{font:inherit;color:inherit;cursor:pointer}
+input,select{font:inherit}
+input::placeholder{color:#8B8B95}
+.app{height:100%;display:flex;flex-direction:column;border:1px solid rgba(255,255,255,0.08)}
+header{height:52px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 10px 0 16px;border-bottom:1px solid var(--line)}
+.logo{width:28px;height:28px;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center}
+.brand{font-size:15px;font-weight:600}
+.pill{display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:500}
+.pill .dot{width:6px;height:6px;border-radius:50%}
+.pill.idle{background:rgba(74,222,128,0.12);color:#86EFAC}.pill.idle .dot{background:#4ADE80}
+.pill.recording{background:rgba(248,113,113,0.14);color:#FCA5A5}.pill.recording .dot{background:#F87171;animation:pulse 1.1s ease-in-out infinite}
+.pill.processing{background:rgba(96,165,250,0.14);color:#BFDBFE}.pill.processing .dot{background:#60A5FA;animation:pulse .8s ease-in-out infinite}
+.pill.error{background:rgba(161,161,170,0.16);color:#D4D4D8}.pill.error .dot{background:#A1A1AA}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.5);opacity:.5}}
+.grow{flex-grow:1}
+.icon-btn{width:32px;height:32px;border:0;border-radius:6px;background:transparent;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.icon-btn:hover{background:rgba(255,255,255,0.06);color:#fff}
+main{flex-grow:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px;user-select:text}
+main::-webkit-scrollbar{width:8px}main::-webkit-scrollbar-thumb{background:#33333C;border-radius:4px}
+.view{display:none;flex-direction:column;gap:12px}.view.on{display:flex}
+.section{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-top:2px}
+.search{position:relative}
+.search svg{position:absolute;left:11px;top:11px}
+.field{width:100%;height:36px;padding:0 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:var(--panel);color:var(--text);font-size:13px;outline:none}
+.field:focus{border-color:var(--accent)}
+.search .field{padding-left:34px}
+.filters{display:flex;gap:6px;flex-wrap:wrap}
+.filter{height:28px;padding:0 12px;border-radius:999px;font-size:12px;font-weight:500;border:1px solid rgba(255,255,255,0.10);background:transparent;color:var(--soft)}
+.filter.on{border-color:var(--accent);background:var(--accent);color:#0E0E12}
+.card{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--panel);border:1px solid var(--line)}
+.card p{margin:0;font-size:13px;line-height:1.45;color:#E4E4E7;white-space:pre-wrap;word-break:break-word}
+.meta{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
+.tag{padding:1px 7px;border-radius:5px;background:var(--chip);color:var(--soft)}
+.mini{width:26px;height:26px;border:0;border-radius:6px;background:var(--chip);color:var(--soft);display:flex;align-items:center;justify-content:center}
+.mini:hover{color:#fff;background:#3A3A45}
+.empty{padding:28px 12px;text-align:center;color:var(--muted);font-size:12px;line-height:1.6}
+h2{margin:0;font-size:14px;font-weight:600}
+.sub{margin:0;font-size:12px;color:var(--muted)}
+.row{display:flex;gap:8px}
+.btn{height:34px;padding:0 14px;border:0;border-radius:8px;background:var(--accent);color:#0E0E12;font-size:13px;font-weight:600}
+.btn.ghost{background:#33333C;color:var(--text);font-weight:500}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 4px 0 10px;border-radius:6px;background:#2A2A33;border:1px solid var(--line);font-size:12px;color:#E4E4E7}
+.chip button{width:20px;height:20px;border:0;border-radius:4px;background:transparent;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.chip button:hover{color:#fff}
+.sep{height:1px;background:var(--line);margin:2px 0}
+.list{display:flex;flex-direction:column;border-radius:10px;background:var(--panel);border:1px solid var(--line);overflow:hidden}
+.list>*:not(:last-child){border-bottom:1px solid rgba(255,255,255,0.05)}
+.rep{display:grid;grid-template-columns:minmax(0,1fr) 16px minmax(0,1fr) 22px;align-items:center;gap:8px;min-height:36px;padding:0 8px 0 12px;font-size:12px}
+.rep .from{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rep .to{color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rep button{width:22px;height:22px;border:0;border-radius:4px;background:transparent;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.rep button:hover{color:#fff}
+.dashed{height:34px;border:1px dashed rgba(255,255,255,0.18);border-radius:8px;background:transparent;color:var(--soft);font-size:12px;font-weight:500;display:flex;align-items:center;justify-content:center;gap:6px}
+.addrep{display:none;flex-direction:column;gap:8px;padding:10px;border-radius:10px;background:var(--panel);border:1px solid var(--line)}
+.addrep.on{display:flex}
+.addrep .field{height:32px;background:#1F1F25}
+.set{display:flex;align-items:center;gap:10px;min-height:46px;padding:6px 10px 6px 12px}
+.set .lbl{flex-grow:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.set .lbl span:first-child{font-size:13px;color:var(--text)}
+.set .lbl span+span{font-size:11px;color:var(--muted)}
+.keys{display:flex;gap:4px;padding:4px;border:0;border-radius:6px;background:transparent}
+.keys:hover{background:rgba(255,255,255,0.05)}
+kbd{min-width:14px;height:22px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;background:var(--chip);border:1px solid rgba(255,255,255,0.08);border-bottom-width:2px;color:#E4E4E7;font:inherit;font-size:11px;font-weight:500}
+.capture{height:28px;padding:0 10px;border-radius:6px;border:1px dashed var(--accent);background:rgba(124,131,255,0.10);color:var(--accent);font-size:11px;font-weight:500}
+.link{border:0;background:transparent;color:var(--muted);font-size:11px;text-decoration:underline;padding:2px}
+.link:hover{color:#fff}
+.seg{display:flex;padding:2px;border-radius:7px;background:#1F1F25;border:1px solid var(--line)}
+.seg button{height:24px;padding:0 10px;border:0;border-radius:5px;font-size:12px;background:transparent;color:var(--muted);font-weight:500}
+.seg button.on{background:#33333C;color:var(--text);font-weight:600}
+.seg button:disabled{opacity:.45;cursor:not-allowed}
+select.field{width:auto;height:30px;padding:0 8px;font-size:12px}
+.toggle{position:relative;width:38px;height:22px;flex-shrink:0;padding:0;border-radius:999px;border:1px solid rgba(255,255,255,0.18);background:#33333C;transition:background 160ms}
+.toggle span{position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:left 160ms}
+.toggle[aria-pressed=true]{border-color:var(--accent);background:var(--accent)}
+.toggle[aria-pressed=true] span{left:19px;background:#0E0E12}
+.swatches{display:flex;gap:8px}
+.swatch{width:20px;height:20px;padding:0;border-radius:50%;border:2px solid transparent}
+.swatch[aria-pressed=true]{border-color:#F2F2F5;box-shadow:0 0 0 2px var(--panel) inset}
+.notice{padding:10px 12px;border-radius:10px;background:rgba(124,131,255,0.12);border:1px solid rgba(124,131,255,0.35);font-size:12px;line-height:1.5}
+.toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);padding:6px 12px;border-radius:8px;background:#33333C;color:var(--text);font-size:12px;opacity:0;transition:opacity 200ms;pointer-events:none;max-width:320px;text-align:center}
+.toast.on{opacity:1}.toast.err{background:#7F1D1D}
+.footer{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)}
+nav{height:64px;flex-shrink:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--line);background:#17171C}
+nav button{position:relative;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--muted);font-size:11px;font-weight:500}
+nav button:hover{color:#fff}
+nav button.on{color:var(--accent);font-weight:600}
+nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header id="titlebar">
+    <div class="logo"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0E0E12" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg></div>
+    <div class="brand">Dictia</div>
+    <div id="status" class="pill idle"><span class="dot"></span><span id="status-text">Prêt</span></div>
+    <div class="grow"></div>
+    <button class="icon-btn" id="btn-min" aria-label="Réduire"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+    <button class="icon-btn" id="btn-close" aria-label="Fermer dans la zone de notification"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </header>
+
+  <main>
+    <!-- Historique -->
+    <section class="view on" id="view-historique">
+      <div class="search">
+        <label for="recherche" class="sr">Rechercher dans l'historique</label>
+        <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8B8B95" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="recherche" class="field" type="search" placeholder="Rechercher une dictée…">
+      </div>
+      <div class="filters" id="filters">
+        <button class="filter on" data-f="tout">Tout</button>
+        <button class="filter" data-f="jour">Aujourd'hui</button>
+        <button class="filter" data-f="semaine">Cette semaine</button>
+      </div>
+      <div id="history"></div>
+    </section>
+
+    <!-- Vocabulaire -->
+    <section class="view" id="view-vocabulaire">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div style="display:flex;align-items:baseline;gap:8px"><h2>Termes reconnus</h2><span id="term-count" style="font-size:11px;color:var(--muted)"></span></div>
+        <p class="sub">Envoyés au modèle pour qu'il reconnaisse ces mots.</p>
+      </div>
+      <form class="row" id="term-form">
+        <label for="nouveau-terme" class="sr">Nouveau terme</label>
+        <input id="nouveau-terme" class="field" style="height:34px;min-width:0;flex-grow:1" placeholder="Ajouter un terme…" autocomplete="off">
+        <button class="btn" type="submit">Ajouter</button>
+      </form>
+      <div class="chips" id="terms"></div>
+      <div class="sep"></div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <h2>Remplacements</h2>
+        <p class="sub">Appliqués au texte après la transcription.</p>
+      </div>
+      <div class="list" id="replacements"></div>
+      <form class="addrep" id="rep-form">
+        <label for="rep-from" class="sr">Texte entendu</label>
+        <input id="rep-from" class="field" placeholder="Texte entendu (ex. presta shop)" autocomplete="off">
+        <label for="rep-to" class="sr">Remplacer par</label>
+        <input id="rep-to" class="field" placeholder="Remplacer par (ex. PrestaShop)" autocomplete="off">
+        <div class="row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="rep-cancel">Annuler</button><button class="btn" type="submit">Ajouter</button></div>
+      </form>
+      <button class="dashed" id="rep-open"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg>Ajouter un remplacement</button>
+    </section>
+
+    <!-- Raccourcis -->
+    <section class="view" id="view-raccourcis">
+      <div class="section">Modes de dictée</div>
+      <div class="list" id="shortcuts"></div>
+      <p class="sub" style="line-height:1.5">Cliquez sur un raccourci puis appuyez sur la nouvelle combinaison (Échap pour annuler). Utilisez au moins une touche Ctrl, Alt, Maj ou Win.</p>
+    </section>
+
+    <!-- Réglages -->
+    <section class="view" id="view-reglages">
+      <div class="notice" id="key-notice" hidden>Ajoutez votre clé API OpenAI ci-dessous pour commencer à dicter.</div>
+      <div class="section">Transcription</div>
+      <div class="list">
+        <div class="set"><div class="lbl"><span>Moteur</span></div>
+          <div class="seg"><button class="on">Standard</button><button disabled title="Bientôt disponible">Realtime</button></div></div>
+        <div class="set"><div class="lbl"><label for="model">Modèle</label></div>
+          <select id="model" class="field"></select></div>
+        <div class="set"><div class="lbl"><span>Clé API</span><span id="key-hint"></span></div>
+          <button class="btn ghost" style="height:28px;font-size:12px" id="key-edit">Modifier</button></div>
+        <form class="set" id="key-form" hidden>
+          <label for="key-input" class="sr">Clé API OpenAI</label>
+          <input id="key-input" class="field" type="password" placeholder="sk-…" autocomplete="off" style="height:32px;flex-grow:1;min-width:0">
+          <button class="btn" type="submit" style="height:32px">Enregistrer</button>
+        </form>
+      </div>
+      <div class="section">Dictée</div>
+      <div class="list">
+        <div class="set"><div class="lbl"><span>Animation près du curseur</span><span>Écoute en rouge, transcription en orange</span></div>
+          <button class="toggle" id="t-indicator" aria-label="Animation près du curseur" aria-pressed="false"><span></span></button></div>
+        <div class="set"><div class="lbl"><span>Espace après le texte</span><span>Pour enchaîner les dictées</span></div>
+          <button class="toggle" id="t-space" aria-label="Espace après le texte" aria-pressed="false"><span></span></button></div>
+      </div>
+      <div class="section">Général</div>
+      <div class="list">
+        <div class="set"><div class="lbl"><span>Lancer au démarrage</span></div>
+          <button class="toggle" id="t-startup" aria-label="Lancer au démarrage" aria-pressed="false"><span></span></button></div>
+        <div class="set"><div class="lbl"><span>Couleur d'accent</span></div>
+          <div class="swatches" id="swatches"></div></div>
+      </div>
+      <div class="footer"><button class="link" id="open-folder">Ouvrir le dossier de configuration</button><span id="version"></span></div>
+    </section>
+  </main>
+
+  <nav aria-label="Navigation principale">
+    <button data-tab="historique" class="on"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>Historique</button>
+    <button data-tab="vocabulaire"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>Vocabulaire</button>
+    <button data-tab="raccourcis"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>Raccourcis</button>
+    <button data-tab="reglages"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg>Réglages</button>
+  </nav>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const send = (msg) => window.ipc.postMessage(JSON.stringify(msg));
+  const ICON_COPY = '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+  const ICON_INSERT = '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>';
+  const ICON_X = '<svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+  const ICON_ARROW = '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8B8B95" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
+  const STATUS = { idle: 'Prêt', recording: 'Écoute', processing: 'Transcription', error: 'Erreur' };
+
+  const state = { history: [], vocab: { terms: [], replacements: [] }, settings: {}, filter: 'tout', query: '', capturing: null };
+
+  // ---- éléments construits sans innerHTML pour les données utilisateur ----
+  function el(tag, attrs, children) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (k === 'class') n.className = v;
+      else if (k === 'text') n.textContent = v;
+      else if (k === 'html') n.innerHTML = v; // icônes statiques uniquement
+      else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+      else n.setAttribute(k, v);
+    }
+    for (const c of children || []) n.append(c);
+    return n;
+  }
+
+  let toastTimer;
+  function toast(text, isError) {
+    const t = $('toast');
+    t.textContent = text;
+    t.className = 'toast on' + (isError ? ' err' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.className = 'toast'; }, 2200);
+  }
+
+  // ---- navigation ----
+  function showTab(tab) {
+    document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+    document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'view-' + tab));
+  }
+  document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+
+  // ---- barre de titre ----
+  $('titlebar').addEventListener('mousedown', (e) => {
+    if (e.button === 0 && !e.target.closest('button')) send({ cmd: 'drag' });
+  });
+  $('btn-min').addEventListener('click', () => send({ cmd: 'minimize' }));
+  $('btn-close').addEventListener('click', () => send({ cmd: 'close' }));
+
+  function setStatus(s) {
+    $('status').className = 'pill ' + s;
+    $('status-text').textContent = STATUS[s] || STATUS.idle;
+  }
+  function setAccent(hex) { document.documentElement.style.setProperty('--accent', hex); }
+
+  // ---- historique ----
+  const DAY = 86400000;
+  function startOfDay(ms) { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  function dayLabel(ms) {
+    const today = startOfDay(Date.now());
+    const day = startOfDay(ms);
+    if (day === today) return "Aujourd'hui";
+    if (day === today - DAY) return 'Hier';
+    return new Date(ms).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+  function clock(ms) { return new Date(ms).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); }
+  function duration(ms) { const s = Math.round(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+
+  function renderHistory() {
+    const box = $('history');
+    box.replaceChildren();
+    const q = state.query.trim().toLowerCase();
+    const today = startOfDay(Date.now());
+    const weekStart = today - ((new Date().getDay() + 6) % 7) * DAY;
+    const items = state.history.filter((e) => {
+      if (q && !e.text.toLowerCase().includes(q) && !e.app.toLowerCase().includes(q)) return false;
+      if (state.filter === 'jour') return e.at_ms >= today;
+      if (state.filter === 'semaine') return e.at_ms >= weekStart;
+      return true;
+    });
+    if (!items.length) {
+      const shortcut = state.settings.shortcut || 'Ctrl+Alt+Espace';
+      box.append(el('div', { class: 'empty', text: state.history.length
+        ? 'Aucune dictée ne correspond.'
+        : 'Aucune dictée pour l’instant.\nAppuyez sur ' + shortcut + ' pour commencer.' }));
+      box.lastChild.style.whiteSpace = 'pre-line';
+      return;
+    }
+    let lastLabel = null;
+    const frag = document.createDocumentFragment();
+    for (const e of items) {
+      const label = dayLabel(e.at_ms);
+      if (label !== lastLabel) {
+        frag.append(el('div', { class: 'section', style: 'margin:6px 0 8px', text: label }));
+        lastLabel = label;
+      }
+      const meta = el('div', { class: 'meta' }, [
+        ...(e.app ? [el('span', { class: 'tag', text: e.app })] : []),
+        el('span', { text: clock(e.at_ms) + ' · ' + duration(e.duration_ms) + ' · ' + e.mode }),
+        el('div', { class: 'grow' }),
+        el('button', { class: 'mini', 'aria-label': 'Copier', title: 'Copier', html: ICON_COPY,
+          onclick: () => send({ cmd: 'copy', text: e.text }) }),
+        el('button', { class: 'mini', 'aria-label': 'Réinsérer au curseur', title: 'Réinsérer au curseur', html: ICON_INSERT,
+          onclick: () => send({ cmd: 'reinsert', text: e.text }) })
+      ]);
+      frag.append(el('article', { class: 'card', style: 'margin-bottom:8px' }, [el('p', { text: e.text }), meta]));
+    }
+    box.append(frag);
+  }
+  $('recherche').addEventListener('input', (e) => { state.query = e.target.value; renderHistory(); });
+  $('filters').addEventListener('click', (e) => {
+    const b = e.target.closest('.filter');
+    if (!b) return;
+    state.filter = b.dataset.f;
+    document.querySelectorAll('.filter').forEach((x) => x.classList.toggle('on', x === b));
+    renderHistory();
+  });
+
+  // ---- vocabulaire ----
+  function saveVocab() { send({ cmd: 'vocab', vocab: state.vocab }); }
+  function renderVocab() {
+    const n = state.vocab.terms.length;
+    $('term-count').textContent = n + (n > 1 ? ' termes' : ' terme');
+    $('terms').replaceChildren(...state.vocab.terms.map((t) => el('span', { class: 'chip' }, [
+      t,
+      el('button', { 'aria-label': 'Retirer ' + t, html: ICON_X, onclick: () => {
+        state.vocab.terms = state.vocab.terms.filter((x) => x !== t);
+        renderVocab(); saveVocab();
+      } })
+    ])));
+    const reps = state.vocab.replacements;
+    const list = $('replacements');
+    list.hidden = reps.length === 0;
+    list.replaceChildren(...reps.map((r, i) => el('div', { class: 'rep' }, [
+      el('span', { class: 'from', text: r.from, title: r.from }),
+      el('span', { html: ICON_ARROW }),
+      el('span', { class: 'to', text: r.to === '\n' ? '↵ retour à la ligne' : r.to, title: r.to }),
+      el('button', { 'aria-label': 'Supprimer le remplacement ' + r.from, html: ICON_X, onclick: () => {
+        state.vocab.replacements.splice(i, 1);
+        renderVocab(); saveVocab();
+      } })
+    ])));
+  }
+  $('term-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = $('nouveau-terme').value.trim();
+    if (!v) return;
+    if (!state.vocab.terms.includes(v)) { state.vocab.terms.push(v); renderVocab(); saveVocab(); }
+    $('nouveau-terme').value = '';
+  });
+  $('rep-open').addEventListener('click', () => { $('rep-form').classList.add('on'); $('rep-open').hidden = true; $('rep-from').focus(); });
+  function closeRepForm() { $('rep-form').classList.remove('on'); $('rep-open').hidden = false; $('rep-from').value = ''; $('rep-to').value = ''; }
+  $('rep-cancel').addEventListener('click', closeRepForm);
+  $('rep-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const from = $('rep-from').value.trim();
+    if (!from) { $('rep-from').focus(); return; }
+    const to = $('rep-to').value.replace(/\\n/g, '\n');
+    state.vocab.replacements = state.vocab.replacements.filter((r) => r.from !== from).concat([{ from, to }]);
+    closeRepForm(); renderVocab(); saveVocab();
+  });
+
+  // ---- raccourcis ----
+  const MODES = [
+    { key: 'shortcut', label: 'Mode bascule', hint: 'Appuyer pour commencer, ré-appuyer pour finir' },
+    { key: 'push_to_talk', label: 'Maintenir pour parler', hint: 'Enregistre tant que les touches sont maintenues' }
+  ];
+  function renderShortcuts() {
+    $('shortcuts').replaceChildren(...MODES.map((m) => {
+      const value = state.settings[m.key] || '';
+      let control;
+      if (state.capturing === m.key) {
+        control = el('button', { class: 'capture', text: 'Appuyez sur une combinaison…', onclick: () => stopCapture() });
+      } else if (value) {
+        control = el('button', { class: 'keys', 'aria-label': 'Modifier le raccourci : ' + m.label, onclick: () => startCapture(m.key) },
+          value.split('+').map((k) => el('kbd', { text: k.trim() })));
+      } else {
+        control = el('button', { class: 'btn ghost', style: 'height:28px;font-size:12px', text: 'Définir', onclick: () => startCapture(m.key) });
+      }
+      const extra = m.key === 'push_to_talk' && value && state.capturing !== m.key
+        ? [el('button', { class: 'link', text: 'Désactiver', onclick: () => send({ cmd: 'change', change: { kind: 'push_to_talk', value: '' } }) })]
+        : [];
+      return el('div', { class: 'set' }, [
+        el('div', { class: 'lbl' }, [el('span', { text: m.label }), el('span', { text: m.hint })]),
+        ...extra, control
+      ]);
+    }));
+  }
+  function startCapture(key) { state.capturing = key; send({ cmd: 'capture', active: true }); renderShortcuts(); }
+  function stopCapture() { if (!state.capturing) return; state.capturing = null; send({ cmd: 'capture', active: false }); renderShortcuts(); }
+  const KEY_NAMES = { Space: 'Espace', Enter: 'Entrée', Escape: 'Échap', Backspace: 'Retour', Delete: 'Suppr', Insert: 'Inser', Home: 'Début', End: 'Fin', PageUp: 'PageUp', PageDown: 'PageDown', Tab: 'Tab' };
+  function keyName(code) {
+    if (KEY_NAMES[code]) return KEY_NAMES[code];
+    if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+    if (/^Digit[0-9]$/.test(code)) return code.slice(5);
+    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+    return null;
+  }
+  window.addEventListener('keydown', (e) => {
+    if (!state.capturing) return;
+    e.preventDefault(); e.stopPropagation();
+    if (['Control', 'Alt', 'Shift', 'Meta', 'AltGraph'].includes(e.key)) return;
+    if (e.code === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) { stopCapture(); return; }
+    const key = keyName(e.code);
+    const mods = [];
+    if (e.ctrlKey) mods.push('Ctrl');
+    if (e.altKey) mods.push('Alt');
+    if (e.shiftKey) mods.push('Maj');
+    if (e.metaKey) mods.push('Win');
+    if (!key) { toast('Touche non prise en charge', true); return; }
+    if (!mods.length && !/^F\d+$/.test(key)) { toast('Ajoutez Ctrl, Alt, Maj ou Win', true); return; }
+    const which = state.capturing;
+    state.capturing = null;
+    send({ cmd: 'change', change: { kind: which, value: mods.concat([key]).join('+') } });
+    send({ cmd: 'capture', active: false });
+    renderShortcuts();
+  }, true);
+
+  // ---- réglages ----
+  function setToggle(id, on) { $(id).setAttribute('aria-pressed', on ? 'true' : 'false'); }
+  function bindToggle(id, make) {
+    $(id).addEventListener('click', () => {
+      const on = $(id).getAttribute('aria-pressed') !== 'true';
+      setToggle(id, on);
+      send(make(on));
+    });
+  }
+  bindToggle('t-indicator', (on) => ({ cmd: 'change', change: { kind: 'indicator', value: on } }));
+  bindToggle('t-space', (on) => ({ cmd: 'change', change: { kind: 'trailing_space', value: on } }));
+  bindToggle('t-startup', (on) => ({ cmd: 'startup', value: on }));
+  $('model').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'model', value: e.target.value } }));
+  $('key-edit').addEventListener('click', () => { $('key-form').hidden = false; $('key-input').focus(); });
+  $('key-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = $('key-input').value.trim();
+    if (!v) return;
+    send({ cmd: 'change', change: { kind: 'api_key', value: v } });
+    $('key-input').value = '';
+    $('key-form').hidden = true;
+  });
+  $('open-folder').addEventListener('click', () => send({ cmd: 'open_folder' }));
+
+  function renderSettings() {
+    const s = state.settings;
+    setAccent(s.accent);
+    $('model').replaceChildren(...s.models.map((m) => el('option', { value: m, text: m })));
+    $('model').value = s.model;
+    $('key-hint').textContent = s.api_key_set ? s.api_key_hint : 'Non renseignée';
+    $('key-notice').hidden = s.api_key_set;
+    setToggle('t-indicator', s.indicator);
+    setToggle('t-space', s.trailing_space);
+    setToggle('t-startup', s.start_with_windows);
+    $('swatches').replaceChildren(...s.accents.map((a) => el('button', {
+      class: 'swatch', style: 'background:' + a.hex, 'aria-label': a.name,
+      'aria-pressed': a.hex.toLowerCase() === s.accent.toLowerCase() ? 'true' : 'false',
+      onclick: () => send({ cmd: 'change', change: { kind: 'accent', value: a.hex } })
+    })));
+    $('version').textContent = 'Dictia ' + s.version;
+    renderShortcuts();
+  }
+
+  // ---- messages venant de Dictia ----
+  window.dictia = {
+    receive(msg) {
+      switch (msg.type) {
+        case 'snapshot':
+          state.history = msg.history;
+          state.vocab = msg.vocab;
+          state.settings = msg.settings;
+          setStatus(msg.status);
+          renderSettings(); renderVocab(); renderHistory();
+          if (msg.tab) showTab(msg.tab);
+          break;
+        case 'settings':
+          state.settings = msg.settings;
+          renderSettings();
+          break;
+        case 'vocab':
+          state.vocab = msg.vocab;
+          renderVocab();
+          break;
+        case 'status':
+          setStatus(msg.status);
+          break;
+        case 'history_add':
+          state.history.unshift(msg.entry);
+          renderHistory();
+          break;
+        case 'toast':
+          toast(msg.text, msg.error);
+          break;
+        case 'tab':
+          showTab(msg.tab);
+          break;
+      }
+    }
+  };
+  send({ cmd: 'ready' });
+})();
+</script>
+</body>
+</html>

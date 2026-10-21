@@ -88,17 +88,6 @@ impl Vocab {
         Self::from_file(&toml::from_str(text)?)
     }
 
-    /// Charge `vocab.toml` depuis `dir`, en le créant au besoin.
-    pub fn load_or_create(dir: &Path) -> Result<Self> {
-        let path = dir.join(VOCAB_FILE);
-        if ensure_file(&path, DEFAULT_VOCAB)? {
-            log::info!("{} créé avec les valeurs par défaut", path.display());
-        }
-        let text =
-            fs::read_to_string(&path).with_context(|| format!("lecture de {}", path.display()))?;
-        Self::parse(&text).with_context(|| format!("contenu invalide dans {}", path.display()))
-    }
-
     pub fn prompt(&self) -> &str {
         &self.prompt
     }
@@ -129,6 +118,17 @@ impl Vocab {
         }
         out
     }
+}
+
+/// Lit `vocab.toml` dans `dir`, en le créant au besoin.
+pub fn load_file_or_create(dir: &Path) -> Result<VocabFile> {
+    let path = dir.join(VOCAB_FILE);
+    if ensure_file(&path, DEFAULT_VOCAB)? {
+        log::info!("{} créé avec les valeurs par défaut", path.display());
+    }
+    let text =
+        fs::read_to_string(&path).with_context(|| format!("lecture de {}", path.display()))?;
+    toml::from_str(&text).with_context(|| format!("contenu invalide dans {}", path.display()))
 }
 
 /// Minuscules, mots séparés par une seule espace, ponctuation retirée.

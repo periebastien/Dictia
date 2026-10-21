@@ -12,12 +12,18 @@
 mod app;
 mod audio;
 mod config;
+#[cfg(windows)]
+mod controller;
+mod history;
 mod hotkey;
 mod inject;
 mod metrics;
+mod overlay;
 mod platform;
+mod settings;
 mod transcription;
 mod tray;
+mod ui;
 mod vocab;
 
 #[cfg(windows)]
