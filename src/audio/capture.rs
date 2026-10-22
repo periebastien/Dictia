@@ -19,25 +19,31 @@ use crate::transcription::realtime;
 
 type ErrorCallback = Arc<dyn Fn(String) + Send + Sync>;
 
-/// Canal de l'audio envoyé en direct (PCM 16 bits, 24 kHz, mono).
-pub type LiveAudio = tokio::sync::mpsc::UnboundedSender<Vec<i16>>;
+/// Audio envoyé en direct : PCM 16 bits mono à la fréquence `rate`.
+pub struct LiveAudio {
+    pub tx: tokio::sync::mpsc::UnboundedSender<Vec<i16>>,
+    pub rate: u32,
+}
 
-/// Conversion en 24 kHz et envoi par blocs de l'audio en direct.
+/// Conversion à la fréquence du moteur et envoi par blocs de l'audio en
+/// direct.
 struct LiveSink {
-    tx: LiveAudio,
+    tx: tokio::sync::mpsc::UnboundedSender<Vec<i16>>,
     resampler: StreamResampler,
     pending: Vec<f32>,
+    /// Taille d'un bloc : 50 ms, assez petit pour la réactivité, assez gros
+    /// pour le réseau.
+    chunk: usize,
 }
 
 impl LiveSink {
-    /// 50 ms : assez petit pour la réactivité, assez gros pour le réseau.
-    const CHUNK: usize = (realtime::RATE / 20) as usize;
-
-    fn new(tx: LiveAudio, device_rate: u32) -> Self {
+    fn new(live: LiveAudio, device_rate: u32) -> Self {
+        let chunk = (live.rate / 20) as usize;
         Self {
-            tx,
-            resampler: StreamResampler::new(device_rate, realtime::RATE),
-            pending: Vec::with_capacity(Self::CHUNK * 2),
+            tx: live.tx,
+            resampler: StreamResampler::new(device_rate, live.rate),
+            pending: Vec::with_capacity(chunk * 2),
+            chunk,
         }
     }
 
@@ -131,7 +137,7 @@ impl Microphone {
     }
 
     /// Commence à garder l'audio. `live`, s'il est fourni, reçoit l'audio en
-    /// PCM 16 bits 24 kHz au fil de la capture (transcription en direct) ;
+    /// PCM 16 bits au fil de la capture (transcription en direct) ;
     /// il est fermé par [`end`](Self::end).
     pub fn begin(&self, live: Option<LiveAudio>) {
         if let Ok(mut take) = self.take.lock() {
@@ -269,7 +275,7 @@ where
                 let (resampler, sink) = state.get_or_insert_with(|| {
                     (
                         StreamResampler::new(rate, TARGET_RATE),
-                        live.take().map(|tx| LiveSink::new(tx, rate)),
+                        live.take().map(|l| LiveSink::new(l, rate)),
                     )
                 });
                 downmix(&scratch, channels, |x| {
@@ -279,7 +285,7 @@ where
                     }
                 });
                 if let Some(sink) = sink.as_mut() {
-                    sink.flush(LiveSink::CHUNK);
+                    sink.flush(sink.chunk);
                 }
             },
             move |err| on_error(format!("erreur du micro : {err}")),

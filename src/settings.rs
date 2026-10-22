@@ -81,7 +81,10 @@ pub enum Change {
     Engine {
         value: String,
     },
+    /// Modèle realtime d'un fournisseur (OpenAI si absent).
     RealtimeModel {
+        #[serde(default)]
+        provider: String,
         value: String,
     },
     /// Code ISO 639-1 ou `auto`.
@@ -191,11 +194,16 @@ pub fn apply_config_change(text: &str, current: &Config, change: &Change) -> Res
             }
             table(&mut doc, "api")["engine"] = value(v.as_str());
         }
-        Change::RealtimeModel { value: v } => {
-            if !realtime::MODELS.contains(&v.as_str()) {
+        Change::RealtimeModel { provider, value: v } => {
+            let p = if provider.is_empty() {
+                Provider::OpenAi
+            } else {
+                parse_provider(provider)?
+            };
+            if !realtime::models(p).contains(&v.as_str()) {
                 bail!("modèle realtime inconnu : {v}");
             }
-            table(&mut doc, "api")["realtime_model"] = value(v.as_str());
+            table(&mut doc, provider_section(p))["realtime_model"] = value(v.as_str());
         }
         Change::Language { value: v } => {
             let v = v.trim().to_ascii_lowercase();
@@ -406,6 +414,7 @@ mod tests {
         assert!(cfg.api.is_realtime());
         assert_eq!(
             apply(Change::RealtimeModel {
+                provider: String::new(),
                 value: "gpt-realtime-whisper".into()
             })
             .unwrap()
@@ -413,6 +422,22 @@ mod tests {
             .realtime_model,
             "gpt-realtime-whisper"
         );
+        assert_eq!(
+            apply(Change::RealtimeModel {
+                provider: "mistral".into(),
+                value: "voxtral-mini-transcribe-realtime-3".into()
+            })
+            .unwrap()
+            .mistral
+            .realtime_model,
+            "voxtral-mini-transcribe-realtime-3"
+        );
+        // Un modèle d'un autre fournisseur est refusé.
+        assert!(apply(Change::RealtimeModel {
+            provider: "mistral".into(),
+            value: "gpt-live-transcribe".into()
+        })
+        .is_err());
         let cfg = apply(Change::PushToTalk {
             value: "Ctrl+Maj+P".into(),
         })
@@ -487,6 +512,7 @@ mod tests {
         })
         .is_err());
         assert!(apply(Change::RealtimeModel {
+            provider: "openai".into(),
             value: "gpt-4o-transcribe-diarize".into()
         })
         .is_err());

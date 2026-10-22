@@ -84,8 +84,6 @@ pub struct SettingsView {
     pub provider: &'static str,
     pub providers: Vec<ProviderView>,
     pub engine: String,
-    pub realtime_model: String,
-    pub realtime_models: Vec<&'static str>,
     /// Code de langue (`auto` compris) et choix proposés.
     pub language: String,
     pub languages: Vec<LanguageView>,
@@ -142,7 +140,10 @@ pub struct ProviderView {
     pub base_url: String,
     pub model: String,
     pub models: &'static [&'static str],
+    /// Moteur realtime proposé, avec son modèle et les choix possibles.
     pub realtime: bool,
+    pub realtime_model: String,
+    pub realtime_models: &'static [&'static str],
 }
 
 impl SettingsView {
@@ -168,6 +169,8 @@ impl SettingsView {
                     model: e.model,
                     models: suggested_models(p),
                     realtime: p.supports_realtime(),
+                    realtime_model: config.realtime_model(p),
+                    realtime_models: realtime::models(p),
                 }
             })
             .collect();
@@ -184,8 +187,6 @@ impl SettingsView {
                 ENGINE_STANDARD
             }
             .to_owned(),
-            realtime_model: config.api.realtime_model.clone(),
-            realtime_models: realtime::MODELS.to_vec(),
             language: language.clone(),
             languages: language_views(&language),
             shortcut: config.hotkey.shortcut.clone(),
@@ -345,11 +346,17 @@ mod tests {
         assert_eq!(view.providers[0].api_key_hint, "sk-…1234");
         assert_eq!(view.providers[1].api_key_hint, "mk-…9876");
         assert!(!view.providers[2].api_key_set && !view.providers[2].needs_key);
-        assert!(view.providers[0].realtime && !view.providers[1].realtime);
+        assert!(view.providers[0].realtime && view.providers[1].realtime);
+        assert!(!view.providers[2].realtime);
         assert_eq!(view.accents.len(), 4);
         assert_eq!(view.release_tail_ms, 300);
         assert_eq!(view.engine, "standard");
-        assert_eq!(view.realtime_model, "gpt-live-transcribe");
+        assert_eq!(view.providers[0].realtime_model, "gpt-live-transcribe");
+        assert_eq!(
+            view.providers[1].realtime_model,
+            "voxtral-mini-transcribe-realtime-2602"
+        );
+        assert_eq!(view.providers[1].realtime_models.len(), 2);
         assert!(
             !SettingsView::new(&Config::default(), |_| None, false, &[]).providers[0].api_key_set
         );

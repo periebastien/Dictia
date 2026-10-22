@@ -9,7 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use tokio::sync::{mpsc, Mutex};
 
-use crate::audio::capture::Microphone;
+use crate::audio::capture::{LiveAudio, Microphone};
 use crate::audio::{duration_of, flac, vad, TARGET_RATE};
 use crate::config::Config;
 use crate::dictation::{self, Effect, Phase};
@@ -314,20 +314,27 @@ impl Controller {
     fn engines(&self) -> Option<(Arc<dyn Backend>, Option<RealtimeConfig>)> {
         let shared = self.shared.read().ok()?;
         let backend = shared.backend.clone()?;
-        let api = &shared.config.api;
-        let realtime = shared
-            .config
+        let config = &shared.config;
+        let api = &config.api;
+        let provider = config.provider();
+        let realtime = config
             .uses_realtime()
             .then(|| shared.api_key.clone())
             .flatten()
-            .map(|api_key| RealtimeConfig {
-                url: realtime::endpoint(&api.base_url),
-                api_key,
-                model: api.realtime_model.clone(),
-                language: api.language_code().to_owned(),
-                prompt: shared.vocab.prompt().to_owned(),
-                keywords: shared.vocab.terms().to_vec(),
-                timeout: Duration::from_secs(api.timeout_secs.max(1)),
+            .map(|api_key| {
+                let dialect = provider.dialect();
+                let model = config.realtime_model(provider);
+                let base_url = config.endpoint(provider, |_| None).base_url;
+                RealtimeConfig {
+                    dialect,
+                    url: realtime::endpoint(dialect, &base_url, &model),
+                    api_key,
+                    model,
+                    language: api.language_code().to_owned(),
+                    prompt: shared.vocab.prompt().to_owned(),
+                    keywords: shared.vocab.terms().to_vec(),
+                    timeout: Duration::from_secs(api.timeout_secs.max(1)),
+                }
             });
         Some((backend, realtime))
     }
@@ -403,12 +410,16 @@ impl Controller {
         let (live, live_audio) = match realtime {
             Some(config) => {
                 let (tx, rx) = mpsc::unbounded_channel();
+                let rate = realtime::rate(config.dialect);
                 let typer = self.shared.read().ok().and_then(|s| {
                     s.config.inject.live_typing.then(|| {
                         Typer::spawn(target, Arc::clone(&s.vocab), Arc::clone(&self.inject_lock))
                     })
                 });
-                (Some(Live::spawn(config, rx, typer)), Some(tx))
+                (
+                    Some(Live::spawn(config, rx, typer)),
+                    Some(LiveAudio { tx, rate }),
+                )
             }
             None => {
                 tokio::spawn(async move { backend.warm_up().await });
@@ -514,7 +525,7 @@ impl Controller {
             },
             provider: provider.name(),
             model: if capture.live.is_some() {
-                config.api.realtime_model.clone()
+                config.realtime_model(provider)
             } else {
                 standard_model.clone()
             },
