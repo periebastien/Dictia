@@ -21,7 +21,7 @@ use tray_icon::{MouseButton, MouseButtonState, TrayIconEvent};
 use crate::audio;
 use crate::config::{self, Config, CONFIG_FILE};
 use crate::controller::{Controller, Event, Shared, SharedRef, Status};
-use crate::history::{self, Entry, HISTORY_FILE, MAX_ENTRIES};
+use crate::history::{self, Entry, Problem, HISTORY_FILE, MAX_ENTRIES};
 use crate::hotkey::{self, Registration};
 use crate::inject;
 use crate::metrics::METRICS_FILE;
@@ -159,6 +159,7 @@ pub fn run() -> Result<()> {
         pending_tab: None,
         mic_control,
         microphones: Vec::new(),
+        problem: None,
     };
     if let Some(tab) = startup_tab {
         app.open_ui(Some(tab));
@@ -209,6 +210,8 @@ struct MainLoop {
     mic_control: Controller,
     /// Micros branchés (relus à chaque ouverture de la fenêtre).
     microphones: Vec<String>,
+    /// Dernier problème, montré en haut de l'historique.
+    problem: Option<Problem>,
 }
 
 impl MainLoop {
@@ -218,6 +221,12 @@ impl MainLoop {
         self.tray.set_state(state);
         self.indicator
             .update(Animation::for_state(state), self.status.mic_rms());
+        if let Some(problem) = self.status.take_problem() {
+            self.problem = Some(problem.clone());
+            self.send(&Message::Problem {
+                problem: Some(problem),
+            });
+        }
         if self.shown_status != Some(state) {
             self.shown_status = Some(state);
             self.send(&Message::Status {
@@ -315,6 +324,7 @@ impl MainLoop {
                     history: self.history.clone(),
                     stats: self.stats(),
                     tab: self.pending_tab.take(),
+                    problem: self.problem.clone(),
                 };
                 self.send(&message);
             }
@@ -392,6 +402,7 @@ impl MainLoop {
             }
             Command::Capture { active } => self.hotkeys.suspend(active),
             Command::OpenFolder => open_folder(&self.dir),
+            Command::DismissProblem => self.problem = None,
         }
     }
 

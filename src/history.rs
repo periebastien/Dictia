@@ -25,6 +25,15 @@ pub struct Entry {
     pub mode: String,
 }
 
+/// Problème survenu pendant une dictée, affiché dans la fenêtre pour ne pas
+/// obliger à ouvrir `dictia.log`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Problem {
+    /// Horodatage Unix en millisecondes.
+    pub at_ms: u64,
+    pub text: String,
+}
+
 /// Ajoute une dictée à la fin du fichier.
 pub fn append(path: &Path, entry: &Entry) -> Result<()> {
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;

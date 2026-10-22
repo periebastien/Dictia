@@ -13,7 +13,7 @@ use crate::audio::capture::{LiveAudio, Microphone};
 use crate::audio::{duration_of, flac, vad, TARGET_RATE};
 use crate::config::Config;
 use crate::dictation::{self, Effect, Phase};
-use crate::history::{self, Entry};
+use crate::history::{self, Entry, Problem};
 use crate::hotkey::Action;
 use crate::inject;
 use crate::live_typing;
@@ -51,6 +51,8 @@ pub struct Status {
     recording: AtomicBool,
     processing: AtomicUsize,
     error: AtomicBool,
+    /// Dernier problème à montrer dans la fenêtre, pas encore lu.
+    problem: std::sync::Mutex<Option<Problem>>,
 }
 
 impl Status {
@@ -61,6 +63,7 @@ impl Status {
             recording: AtomicBool::new(false),
             processing: AtomicUsize::new(0),
             error: AtomicBool::new(false),
+            problem: std::sync::Mutex::new(None),
         }
     }
 
@@ -82,6 +85,24 @@ impl Status {
 
     pub fn notify(&self) {
         platform::post_wake(self.main_thread);
+    }
+
+    /// Problème signalé depuis la dernière lecture.
+    pub fn take_problem(&self) -> Option<Problem> {
+        self.problem.lock().ok()?.take()
+    }
+
+    /// Note un problème pour la fenêtre (sans changer l'état de l'icône).
+    fn report(&self, text: String) {
+        if let Ok(mut p) = self.problem.lock() {
+            *p = Some(Problem {
+                at_ms: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as u64),
+                text,
+            });
+        }
+        self.notify();
     }
 
     fn set_recording(&self, on: bool) {
@@ -109,7 +130,7 @@ impl Status {
         log::error!("{context} : {err}");
         self.error.store(true, Ordering::SeqCst);
         platform::beep_error();
-        self.notify();
+        self.report(format!("Erreur ({context}) : {err}"));
     }
 }
 
@@ -561,6 +582,9 @@ impl Controller {
                 Ok(text) => text,
                 Err(e) => {
                     log::warn!("transcription en direct indisponible, repli sur le moteur standard : {e:#}");
+                    self.status.report(format!(
+                        "Realtime indisponible, dictée transcrite en Standard : {e:#}"
+                    ));
                     lat.backend = "realtime>standard";
                     lat.model = standard_model;
                     transcribe_file(
