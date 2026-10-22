@@ -10,7 +10,7 @@ pub mod window;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{Config, Provider, ENGINE_REALTIME, ENGINE_STANDARD};
-use crate::history::Entry;
+use crate::history::{Entry, Problem};
 use crate::settings::{
     mask_api_key, suggested_models, Change, VocabEdit, ACCENTS, LANGUAGES, RELEASE_TAILS,
 };
@@ -55,6 +55,8 @@ pub enum Command {
         active: bool,
     },
     OpenFolder,
+    /// Le problème affiché a été lu.
+    DismissProblem,
 }
 
 impl Command {
@@ -239,6 +241,7 @@ pub enum Message {
         history: Vec<Entry>,
         stats: Vec<ModelStats>,
         tab: Option<Tab>,
+        problem: Option<Problem>,
     },
     Stats {
         stats: Vec<ModelStats>,
@@ -261,6 +264,10 @@ pub enum Message {
     },
     Tab {
         tab: Tab,
+    },
+    /// Dernier problème (`None` : rien à signaler).
+    Problem {
+        problem: Option<Problem>,
     },
 }
 
@@ -294,6 +301,10 @@ mod tests {
     #[test]
     fn parses_page_commands() {
         assert_eq!(Command::parse(r#"{"cmd":"ready"}"#), Some(Command::Ready));
+        assert_eq!(
+            Command::parse(r#"{"cmd":"dismiss_problem"}"#),
+            Some(Command::DismissProblem)
+        );
         assert_eq!(
             Command::parse(
                 r#"{"cmd":"change","change":{"kind":"push_to_talk","value":"Ctrl+Maj+P"}}"#
@@ -436,5 +447,20 @@ mod tests {
         for status in ["idle", "recording", "processing", "error"] {
             assert!(HTML.contains(&format!(".pill.{status}")), "{status}");
         }
+    }
+
+    #[test]
+    fn problem_message_for_the_page() {
+        let message = Message::Problem {
+            problem: Some(Problem {
+                at_ms: 42,
+                text: "Realtime indisponible : HTTP 401".into(),
+            }),
+        };
+        let script = message.to_script();
+        assert!(
+            script.contains(r#"{"type":"problem","problem":{"at_ms":42,"text":"Realtime indisponible : HTTP 401"}}"#),
+            "{script}"
+        );
     }
 }
