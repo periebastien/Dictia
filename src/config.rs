@@ -40,7 +40,7 @@ base_url = "https://api.openai.com/v1"
 #   "standard" : l'audio est envoyé à la fin de la dictée (éprouvé) ;
 #   "realtime" : l'audio est envoyé pendant la dictée, le texte arrive
 #                presque aussitôt au relâchement (repli automatique sur
-#                "standard" en cas d'échec).
+#                "standard" en cas d'échec). OpenAI et Mistral.
 engine = "standard"
 # Modèle du moteur standard.
 model = "gpt-4o-transcribe"
@@ -58,8 +58,10 @@ timeout_secs = 30
 # Clé API Mistral. Laissez vide pour utiliser MISTRAL_API_KEY.
 api_key = ""
 base_url = "https://api.mistral.ai/v1"
-# Modèle Voxtral (ex. voxtral-mini-latest).
+# Modèle Voxtral du moteur standard (ex. voxtral-mini-latest).
 model = "voxtral-mini-latest"
+# Modèle Voxtral du moteur realtime (choisi avec engine = "realtime").
+realtime_model = "voxtral-mini-transcribe-realtime-2602"
 
 [local]
 # Serveur de transcription sur votre PC, compatible avec l'API OpenAI
@@ -285,11 +287,13 @@ impl Default for Config {
                 api_key: String::new(),
                 base_url: Provider::Mistral.default_base_url().into(),
                 model: Provider::Mistral.default_model().into(),
+                realtime_model: Provider::Mistral.default_realtime_model().into(),
             },
             local: ProviderConfig {
                 api_key: String::new(),
                 base_url: Provider::Local.default_base_url().into(),
                 model: Provider::Local.default_model().into(),
+                realtime_model: String::new(),
             },
             hotkey: HotkeyConfig::default(),
             audio: AudioConfig::default(),
@@ -307,6 +311,8 @@ pub struct ProviderConfig {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
+    /// Modèle du moteur realtime (fournisseurs qui le proposent).
+    pub realtime_model: String,
 }
 
 impl fmt::Debug for ProviderConfig {
@@ -315,6 +321,7 @@ impl fmt::Debug for ProviderConfig {
             .field("api_key", &if self.api_key.is_empty() { "" } else { "***" })
             .field("base_url", &self.base_url)
             .field("model", &self.model)
+            .field("realtime_model", &self.realtime_model)
             .finish()
     }
 }
@@ -398,9 +405,18 @@ impl Provider {
         }
     }
 
-    /// Seul OpenAI propose pour l'instant le moteur realtime de Dictia.
+    /// Fournisseurs proposant le moteur realtime de Dictia.
     pub fn supports_realtime(self) -> bool {
-        self == Self::OpenAi
+        self != Self::Local
+    }
+
+    /// Modèle realtime utilisé si aucun n'est renseigné.
+    pub fn default_realtime_model(self) -> &'static str {
+        match self {
+            Self::OpenAi => "gpt-live-transcribe",
+            Self::Mistral => "voxtral-mini-transcribe-realtime-2602",
+            Self::Local => "",
+        }
     }
 }
 
@@ -446,6 +462,22 @@ impl Config {
             model: or_default(model, provider.default_model()),
             api_key,
         }
+    }
+
+    /// Modèle realtime d'un fournisseur.
+    pub fn realtime_model(&self, provider: Provider) -> String {
+        let model = match provider {
+            Provider::OpenAi => &self.api.realtime_model,
+            Provider::Mistral => &self.mistral.realtime_model,
+            Provider::Local => &self.local.realtime_model,
+        }
+        .trim();
+        if model.is_empty() {
+            provider.default_realtime_model()
+        } else {
+            model
+        }
+        .to_owned()
     }
 
     /// Moteur realtime effectivement utilisé (choisi et disponible).
@@ -565,11 +597,24 @@ mod tests {
     }
 
     #[test]
-    fn realtime_only_with_openai() {
+    fn realtime_with_openai_and_mistral() {
         let mut cfg = Config::default();
         cfg.api.engine = "realtime".into();
         assert!(cfg.uses_realtime());
+        assert_eq!(cfg.realtime_model(Provider::OpenAi), "gpt-live-transcribe");
         cfg.api.provider = "mistral".into();
+        assert!(cfg.uses_realtime());
+        assert_eq!(
+            cfg.realtime_model(Provider::Mistral),
+            "voxtral-mini-transcribe-realtime-2602"
+        );
+        // Une section [mistral] ancienne, sans realtime_model.
+        cfg.mistral.realtime_model.clear();
+        assert_eq!(
+            cfg.realtime_model(Provider::Mistral),
+            "voxtral-mini-transcribe-realtime-2602"
+        );
+        cfg.api.provider = "local".into();
         assert!(!cfg.uses_realtime());
     }
 

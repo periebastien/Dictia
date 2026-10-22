@@ -483,7 +483,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     const value = e.target.value.trim();
     if (!value) { renderSettings(); return; }
     send({ cmd: 'change', change: realtimeOn()
-      ? { kind: 'realtime_model', value }
+      ? { kind: 'realtime_model', provider: state.settings.provider, value }
       : { kind: 'provider_model', provider: state.settings.provider, value } });
   });
   // La liste de suggestions ne montre que ce qui ressemble au texte saisi :
@@ -524,11 +524,10 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       'data-provider': x.id, class: x.id === s.provider ? 'on' : '', text: x.name })));
     $('row-engine').hidden = !p.realtime;
     document.querySelectorAll('#engine button').forEach((b) => b.classList.toggle('on', b.dataset.engine === s.engine));
-    const models = realtime ? s.realtime_models : p.models;
+    const models = realtime ? p.realtime_models : p.models;
     $('model-list').replaceChildren(...models.map((m) => el('option', { value: m })));
-    $('model').value = realtime ? s.realtime_model : p.model;
+    $('model').value = realtime ? p.realtime_model : p.model;
     $('url').value = p.base_url;
-    $('url').disabled = realtime;
     renderKeys();
     $('language').replaceChildren(...s.languages.map((l) => el('option', { value: l.code, text: l.name })));
     $('language').value = s.language;

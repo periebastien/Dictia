@@ -181,7 +181,7 @@ sa clé (Réglages → **Clés API**), son modèle et son adresse :
 | Fournisseur | Section de `config.toml` | Clé de secours | Format |
 |-------------|--------------------------|----------------|--------|
 | OpenAI      | `[api]`                  | `OPENAI_API_KEY` | `prompt`, moteur Realtime disponible |
-| Mistral     | `[mistral]`              | `MISTRAL_API_KEY` | Voxtral : termes du Vocabulaire envoyés en `context_bias` |
+| Mistral     | `[mistral]`              | `MISTRAL_API_KEY` | Voxtral : termes du Vocabulaire envoyés en `context_bias`, moteur Realtime disponible |
 | Local       | `[local]`                | (facultative) | serveur compatible OpenAI sur votre PC (ex. vLLM) |
 
 Les Statistiques distinguent chaque fournisseur et chaque modèle.
@@ -191,10 +191,17 @@ Les Statistiques distinguent chaque fournisseur et chaque modèle.
 - **Standard** (par défaut) : l'audio est envoyé quand vous avez fini de
   parler (FLAC, silences retirés), puis le texte revient en streaming.
 - **Realtime** (Réglages → Moteur) : l'audio part **pendant** que vous parlez,
-  sur une WebSocket (`/v1/realtime?intent=transcription`, PCM 24 kHz). Au
-  relâchement, il ne reste qu'à valider : le texte arrive presque aussitôt.
-  Avec `gpt-live-transcribe`, vos termes du Vocabulaire sont transmis comme
-  mots-clés ; avec `gpt-4o-transcribe`, comme prompt. Si la session en direct
+  sur une WebSocket. Au relâchement, il ne reste qu'à valider : le texte
+  arrive presque aussitôt.
+  - OpenAI : `/v1/realtime?intent=transcription`, PCM 24 kHz. Avec
+    `gpt-live-transcribe`, vos termes du Vocabulaire sont transmis comme
+    mots-clés ; avec `gpt-4o-transcribe`, comme prompt.
+  - Mistral : `/v1/audio/transcriptions/realtime`, PCM 16 kHz, modèles
+    Voxtral Realtime (`voxtral-mini-transcribe-realtime-2602` par défaut,
+    réglage `realtime_model` de `[mistral]`) ; vos termes partent en
+    `context_bias`.
+
+  Si la session en direct
   échoue (réseau, modèle indisponible), la dictée est automatiquement
   retranscrite par le moteur standard : rien n'est perdu.
 - **Écrire pendant la dictée** (Realtime, activé par défaut) : le texte est

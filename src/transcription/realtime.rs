@@ -1,9 +1,12 @@
 //! Backend Realtime : l'audio est envoyé **pendant** la dictée sur une
-//! WebSocket (`/v1/realtime?intent=transcription`).
+//! WebSocket, et le texte arrive au fil de l'eau.
 //!
-//! Au relâchement du raccourci, il ne reste qu'à valider le tampon
-//! (`input_audio_buffer.commit`) : l'upload est déjà fait et, avec les
-//! modèles « live », l'essentiel du texte aussi.
+//! Deux protocoles :
+//! - OpenAI (`/v1/realtime?intent=transcription`) : au relâchement, il ne
+//!   reste qu'à valider le tampon (`input_audio_buffer.commit`) ;
+//! - Mistral (`/v1/audio/transcriptions/realtime`, modèles Voxtral
+//!   Realtime) : au relâchement, `input_audio.flush` puis `input_audio.end`,
+//!   et le serveur termine par `transcription.done`.
 
 use std::time::Duration;
 
@@ -18,11 +21,15 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use super::Progress;
+use crate::config::{Dialect, Provider};
 
-/// Fréquence imposée par l'API Realtime.
+/// Fréquence imposée par l'API Realtime d'OpenAI.
 pub const RATE: u32 = 24_000;
 
-/// Modèles proposés, du plus réactif au plus classique.
+/// Fréquence envoyée à Voxtral Realtime (celle de la capture de Dictia).
+pub const MISTRAL_RATE: u32 = 16_000;
+
+/// Modèles OpenAI proposés, du plus réactif au plus classique.
 pub const MODELS: [&str; 4] = [
     "gpt-live-transcribe",
     "gpt-realtime-whisper",
@@ -30,9 +37,33 @@ pub const MODELS: [&str; 4] = [
     "gpt-4o-mini-transcribe",
 ];
 
+/// Modèles Voxtral Realtime proposés.
+pub const MISTRAL_MODELS: [&str; 2] = [
+    "voxtral-mini-transcribe-realtime-2602",
+    "voxtral-mini-transcribe-realtime-3",
+];
+
+/// Modèles realtime d'un fournisseur.
+pub fn models(provider: Provider) -> &'static [&'static str] {
+    match provider {
+        Provider::OpenAi => &MODELS,
+        Provider::Mistral => &MISTRAL_MODELS,
+        Provider::Local => &[],
+    }
+}
+
+/// Fréquence de l'audio envoyé selon le protocole.
+pub fn rate(dialect: Dialect) -> u32 {
+    match dialect {
+        Dialect::OpenAi => RATE,
+        Dialect::Mistral => MISTRAL_RATE,
+    }
+}
+
 /// Paramètres d'une session.
 #[derive(Clone)]
 pub struct RealtimeConfig {
+    pub dialect: Dialect,
     pub url: String,
     pub api_key: String,
     pub model: String,
@@ -43,7 +74,7 @@ pub struct RealtimeConfig {
 }
 
 /// URL WebSocket à partir de l'URL de base HTTP de l'API.
-pub fn endpoint(base_url: &str) -> String {
+pub fn endpoint(dialect: Dialect, base_url: &str, model: &str) -> String {
     let base = base_url.trim_end_matches('/');
     let ws = if let Some(rest) = base.strip_prefix("https://") {
         format!("wss://{rest}")
@@ -52,7 +83,35 @@ pub fn endpoint(base_url: &str) -> String {
     } else {
         base.to_owned()
     };
-    format!("{ws}/realtime?intent=transcription")
+    match dialect {
+        Dialect::OpenAi => format!("{ws}/realtime?intent=transcription"),
+        Dialect::Mistral => format!(
+            "{ws}/audio/transcriptions/realtime?model={}",
+            query_escape(model)
+        ),
+    }
+}
+
+/// Encodage minimal d'une valeur de paramètre d'URL.
+fn query_escape(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                char::from(b).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// Termes non vides du vocabulaire.
+fn clean_terms(keywords: &[String]) -> Vec<&str> {
+    keywords
+        .iter()
+        .map(|k| k.trim())
+        .filter(|k| !k.is_empty())
+        .collect()
 }
 
 /// Configuration de la session : transcription seule, audio PCM 24 kHz,
@@ -65,11 +124,7 @@ pub fn session_update(model: &str, language: &str, prompt: &str, keywords: &[Str
     // Chaque famille de modèles a sa façon d'être guidée.
     match model {
         "gpt-live-transcribe" | "gpt-transcribe" => {
-            let words: Vec<&str> = keywords
-                .iter()
-                .map(|k| k.trim())
-                .filter(|k| !k.is_empty())
-                .collect();
+            let words = clean_terms(keywords);
             if !words.is_empty() {
                 transcription["keywords"] = json!(words);
             }
@@ -97,6 +152,22 @@ pub fn session_update(model: &str, language: &str, prompt: &str, keywords: &[Str
     })
 }
 
+/// Configuration d'une session Voxtral Realtime : PCM 16 bits 16 kHz, langue
+/// et termes du vocabulaire (`context_bias`). Le modèle est dans l'URL.
+pub fn mistral_session_update(language: &str, keywords: &[String]) -> Value {
+    let mut session = json!({
+        "audio_format": { "encoding": "pcm_s16le", "sample_rate": MISTRAL_RATE }
+    });
+    if !language.trim().is_empty() {
+        session["language"] = json!(language.trim());
+    }
+    let terms = clean_terms(keywords);
+    if !terms.is_empty() {
+        session["context_bias"] = json!(terms);
+    }
+    json!({ "type": "session.update", "session": session })
+}
+
 /// Échantillons `f32` (-1..1) → PCM 16 bits.
 pub fn to_pcm16(samples: &[f32]) -> Vec<i16> {
     samples
@@ -106,10 +177,14 @@ pub fn to_pcm16(samples: &[f32]) -> Vec<i16> {
 }
 
 /// Événement d'ajout d'audio (PCM 16 bits petit-boutiste, en base64).
-pub fn append_event(pcm: &[i16]) -> String {
+pub fn append_event(dialect: Dialect, pcm: &[i16]) -> String {
     let bytes: Vec<u8> = pcm.iter().flat_map(|s| s.to_le_bytes()).collect();
+    let kind = match dialect {
+        Dialect::OpenAi => "input_audio_buffer.append",
+        Dialect::Mistral => "input_audio.append",
+    };
     json!({
-        "type": "input_audio_buffer.append",
+        "type": kind,
         "audio": base64::engine::general_purpose::STANDARD.encode(bytes),
     })
     .to_string()
@@ -117,23 +192,33 @@ pub fn append_event(pcm: &[i16]) -> String {
 
 pub const COMMIT_EVENT: &str = r#"{"type":"input_audio_buffer.commit"}"#;
 
+/// Fin de l'audio chez Mistral : vide le tampon puis clôt l'entrée.
+pub const MISTRAL_END_EVENTS: [&str; 2] = [
+    r#"{"type":"input_audio.flush"}"#,
+    r#"{"type":"input_audio.end"}"#,
+];
+
 /// Événement serveur utile à Dictia.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerEvent {
     Delta(String),
-    Committed { item_id: String },
-    Completed { item_id: String, transcript: String },
+    Committed {
+        item_id: String,
+    },
+    Completed {
+        item_id: String,
+        transcript: String,
+    },
+    /// Session ouverte par le serveur (Mistral).
+    SessionCreated,
+    /// Texte final de la session (Mistral).
+    Done(String),
     Failed(String),
     Error(String),
     Other,
 }
 
-pub fn parse_event(text: &str) -> Result<ServerEvent> {
-    #[derive(Deserialize)]
-    struct Detail {
-        #[serde(default)]
-        message: String,
-    }
+pub fn parse_event(dialect: Dialect, text: &str) -> Result<ServerEvent> {
     #[derive(Deserialize)]
     struct Raw {
         #[serde(rename = "type", default)]
@@ -145,31 +230,49 @@ pub fn parse_event(text: &str) -> Result<ServerEvent> {
         #[serde(default)]
         transcript: Option<String>,
         #[serde(default)]
-        error: Option<Detail>,
+        text: Option<String>,
+        #[serde(default)]
+        error: Option<Value>,
     }
     let raw: Raw =
         serde_json::from_str(text).with_context(|| format!("événement illisible : {text}"))?;
-    let message = || {
-        raw.error
-            .as_ref()
-            .map(|e| e.message.clone())
-            .unwrap_or_default()
-    };
-    Ok(match raw.kind.as_str() {
-        "conversation.item.input_audio_transcription.delta" => {
+    let message = || raw.error.as_ref().map(error_message).unwrap_or_default();
+    Ok(match (dialect, raw.kind.as_str()) {
+        (_, "error") => ServerEvent::Error(message()),
+        (Dialect::OpenAi, "conversation.item.input_audio_transcription.delta") => {
             ServerEvent::Delta(raw.delta.clone().unwrap_or_default())
         }
-        "input_audio_buffer.committed" => ServerEvent::Committed {
+        (Dialect::OpenAi, "input_audio_buffer.committed") => ServerEvent::Committed {
             item_id: raw.item_id.clone(),
         },
-        "conversation.item.input_audio_transcription.completed" => ServerEvent::Completed {
-            item_id: raw.item_id.clone(),
-            transcript: raw.transcript.clone().unwrap_or_default(),
-        },
-        "conversation.item.input_audio_transcription.failed" => ServerEvent::Failed(message()),
-        "error" => ServerEvent::Error(message()),
+        (Dialect::OpenAi, "conversation.item.input_audio_transcription.completed") => {
+            ServerEvent::Completed {
+                item_id: raw.item_id.clone(),
+                transcript: raw.transcript.clone().unwrap_or_default(),
+            }
+        }
+        (Dialect::OpenAi, "conversation.item.input_audio_transcription.failed") => {
+            ServerEvent::Failed(message())
+        }
+        (Dialect::Mistral, "session.created") => ServerEvent::SessionCreated,
+        (Dialect::Mistral, "transcription.text.delta") => {
+            ServerEvent::Delta(raw.text.clone().unwrap_or_default())
+        }
+        (Dialect::Mistral, "transcription.done") => {
+            ServerEvent::Done(raw.text.clone().unwrap_or_default())
+        }
         _ => ServerEvent::Other,
     })
+}
+
+/// Message lisible d'un objet `error` : `{"message": "…"}` ou, chez
+/// Mistral, `{"message": {"detail": "…"}}`.
+fn error_message(error: &Value) -> String {
+    let message = &error["message"];
+    message
+        .as_str()
+        .or_else(|| message["detail"].as_str())
+        .map_or_else(|| error.to_string(), str::to_owned)
 }
 
 /// Assemble le texte final d'une dictée.
@@ -204,9 +307,13 @@ impl Assembler {
                     return Ok(true);
                 }
             }
+            ServerEvent::Done(text) => {
+                self.done = Some(text.clone());
+                return Ok(true);
+            }
             ServerEvent::Failed(msg) => bail!("transcription en direct échouée : {msg}"),
             ServerEvent::Error(msg) => bail!("erreur de l'API Realtime : {msg}"),
-            ServerEvent::Other => {}
+            ServerEvent::SessionCreated | ServerEvent::Other => {}
         }
         Ok(false)
     }
@@ -241,12 +348,35 @@ pub async fn run_session(
     .context("connexion Realtime trop lente")?
     .context("connexion Realtime impossible")?;
     let (mut sink, mut stream) = ws.split();
-    let update = session_update(
-        &config.model,
-        &config.language,
-        &config.prompt,
-        &config.keywords,
-    );
+    let dialect = config.dialect;
+    if dialect == Dialect::Mistral {
+        // Mistral ouvre la session de lui-même (`session.created`) avant
+        // d'accepter des réglages ; l'audio attend dans le canal.
+        let created = async {
+            while let Some(msg) = stream.next().await {
+                if let WsMessage::Text(text) = msg? {
+                    match parse_event(dialect, &text)? {
+                        ServerEvent::Error(e) => bail!("erreur de l'API Realtime : {e}"),
+                        ServerEvent::SessionCreated => return Ok(()),
+                        _ => {}
+                    }
+                }
+            }
+            bail!("connexion Realtime fermée à l'ouverture")
+        };
+        tokio::time::timeout(Duration::from_secs(10), created)
+            .await
+            .context("ouverture de la session Realtime trop lente")??;
+    }
+    let update = match dialect {
+        Dialect::OpenAi => session_update(
+            &config.model,
+            &config.language,
+            &config.prompt,
+            &config.keywords,
+        ),
+        Dialect::Mistral => mistral_session_update(&config.language, &config.keywords),
+    };
     sink.send(WsMessage::text(update.to_string())).await?;
 
     let mut assembler = Assembler::default();
@@ -258,31 +388,39 @@ pub async fn run_session(
             chunk = audio.recv() => match chunk {
                 Some(pcm) => {
                     sent_samples += pcm.len();
-                    sink.send(WsMessage::text(append_event(&pcm))).await?;
+                    sink.send(WsMessage::text(append_event(dialect, &pcm))).await?;
                 }
                 None => break,
             },
             msg = stream.next() => match msg {
                 Some(msg) => {
-                    handle_message(msg?, &mut assembler, &mut progress)?;
+                    handle_message(dialect, msg?, &mut assembler, &mut progress)?;
                 }
                 None => bail!("connexion Realtime interrompue"),
             },
         }
     }
 
-    // L'API refuse un tampon de moins de 100 ms.
-    if sent_samples < (RATE / 10) as usize {
+    // L'API d'OpenAI refuse un tampon de moins de 100 ms ; en dessous, il
+    // n'y a de toute façon rien à transcrire.
+    if sent_samples < (rate(dialect) / 10) as usize {
         let _ = sink.close().await;
         return Ok(String::new());
     }
-    sink.send(WsMessage::text(COMMIT_EVENT)).await?;
+    match dialect {
+        Dialect::OpenAi => sink.send(WsMessage::text(COMMIT_EVENT)).await?,
+        Dialect::Mistral => {
+            for event in MISTRAL_END_EVENTS {
+                sink.send(WsMessage::text(event)).await?;
+            }
+        }
+    }
     assembler.commit_sent();
     progress(Progress::ResponseStarted);
 
     let finish = async {
         while let Some(msg) = stream.next().await {
-            if handle_message(msg?, &mut assembler, &mut progress)? {
+            if handle_message(dialect, msg?, &mut assembler, &mut progress)? {
                 return Ok(());
             }
         }
@@ -297,13 +435,14 @@ pub async fn run_session(
 
 /// Traite un message du serveur ; `true` quand le texte est complet.
 fn handle_message(
+    dialect: Dialect,
     msg: WsMessage,
     assembler: &mut Assembler,
     progress: &mut impl FnMut(Progress<'_>),
 ) -> Result<bool> {
     match msg {
         WsMessage::Text(text) => {
-            let event = parse_event(&text)?;
+            let event = parse_event(dialect, &text)?;
             if let ServerEvent::Delta(d) = &event {
                 progress(Progress::Delta(d));
             }
@@ -326,12 +465,28 @@ mod tests {
     #[test]
     fn builds_websocket_endpoint() {
         assert_eq!(
-            endpoint("https://api.openai.com/v1/"),
+            endpoint(
+                Dialect::OpenAi,
+                "https://api.openai.com/v1/",
+                "gpt-live-transcribe"
+            ),
             "wss://api.openai.com/v1/realtime?intent=transcription"
         );
         assert_eq!(
-            endpoint("http://127.0.0.1:9000/v1"),
+            endpoint(Dialect::OpenAi, "http://127.0.0.1:9000/v1", "m"),
             "ws://127.0.0.1:9000/v1/realtime?intent=transcription"
+        );
+        assert_eq!(
+            endpoint(
+                Dialect::Mistral,
+                "https://api.mistral.ai/v1",
+                "voxtral-mini-transcribe-realtime-2602"
+            ),
+            "wss://api.mistral.ai/v1/audio/transcriptions/realtime?model=voxtral-mini-transcribe-realtime-2602"
+        );
+        assert_eq!(
+            endpoint(Dialect::Mistral, "http://h/v1", "a b/c"),
+            "ws://h/v1/audio/transcriptions/realtime?model=a%20b%2Fc"
         );
     }
 
@@ -371,38 +526,48 @@ mod tests {
     #[test]
     fn audio_is_base64_pcm16_little_endian() {
         assert_eq!(to_pcm16(&[0.0, 1.0, -1.0, 2.0]), [0, 32767, -32767, 32767]);
-        let event: Value = serde_json::from_str(&append_event(&[1, -2])).unwrap();
+        let event: Value = serde_json::from_str(&append_event(Dialect::OpenAi, &[1, -2])).unwrap();
         assert_eq!(event["type"], "input_audio_buffer.append");
         // 01 00 FE FF
+        assert_eq!(event["audio"], "AQD+/w==");
+        let event: Value = serde_json::from_str(&append_event(Dialect::Mistral, &[1, -2])).unwrap();
+        assert_eq!(event["type"], "input_audio.append");
         assert_eq!(event["audio"], "AQD+/w==");
     }
 
     #[test]
     fn parses_server_events() {
         assert_eq!(
-            parse_event(r#"{"type":"conversation.item.input_audio_transcription.delta","item_id":"i1","delta":"Bon"}"#).unwrap(),
+            parse_event(Dialect::OpenAi, r#"{"type":"conversation.item.input_audio_transcription.delta","item_id":"i1","delta":"Bon"}"#).unwrap(),
             ServerEvent::Delta("Bon".into())
         );
         assert_eq!(
-            parse_event(r#"{"type":"input_audio_buffer.committed","item_id":"i1","event_id":"e"}"#)
-                .unwrap(),
+            parse_event(
+                Dialect::OpenAi,
+                r#"{"type":"input_audio_buffer.committed","item_id":"i1","event_id":"e"}"#
+            )
+            .unwrap(),
             ServerEvent::Committed {
                 item_id: "i1".into()
             }
         );
         assert_eq!(
-            parse_event(r#"{"type":"conversation.item.input_audio_transcription.completed","item_id":"i1","content_index":0,"transcript":"Bonjour.","usage":{"type":"duration","seconds":1.2}}"#).unwrap(),
+            parse_event(Dialect::OpenAi, r#"{"type":"conversation.item.input_audio_transcription.completed","item_id":"i1","content_index":0,"transcript":"Bonjour.","usage":{"type":"duration","seconds":1.2}}"#).unwrap(),
             ServerEvent::Completed { item_id: "i1".into(), transcript: "Bonjour.".into() }
         );
         assert_eq!(
-            parse_event(r#"{"type":"error","error":{"type":"invalid_request_error","message":"Model not found"}}"#).unwrap(),
+            parse_event(Dialect::OpenAi, r#"{"type":"error","error":{"type":"invalid_request_error","message":"Model not found"}}"#).unwrap(),
             ServerEvent::Error("Model not found".into())
         );
         assert_eq!(
-            parse_event(r#"{"type":"session.updated","session":{}}"#).unwrap(),
+            parse_event(
+                Dialect::OpenAi,
+                r#"{"type":"session.updated","session":{}}"#
+            )
+            .unwrap(),
             ServerEvent::Other
         );
-        assert!(parse_event("pas du json").is_err());
+        assert!(parse_event(Dialect::OpenAi, "pas du json").is_err());
     }
 
     #[test]
@@ -492,7 +657,8 @@ mod tests {
 
         let (tx, rx) = mpsc::unbounded_channel();
         let config = RealtimeConfig {
-            url: endpoint(&format!("http://{addr}/v1")),
+            dialect: Dialect::OpenAi,
+            url: endpoint(Dialect::OpenAi, &format!("http://{addr}/v1"), ""),
             api_key: "sk-test".into(),
             model: "gpt-live-transcribe".into(),
             language: "fr".into(),
@@ -549,7 +715,8 @@ mod tests {
         tx.send(vec![0i16; 480]).unwrap(); // 20 ms
         drop(tx);
         let config = RealtimeConfig {
-            url: endpoint(&format!("http://{addr}/v1")),
+            dialect: Dialect::OpenAi,
+            url: endpoint(Dialect::OpenAi, &format!("http://{addr}/v1"), ""),
             api_key: "k".into(),
             model: "gpt-4o-transcribe".into(),
             language: "fr".into(),
@@ -558,5 +725,200 @@ mod tests {
             timeout: Duration::from_secs(5),
         };
         assert_eq!(run_session(config, rx, |_| {}).await.unwrap(), "");
+    }
+
+    #[test]
+    fn mistral_session_update_sets_format_language_and_terms() {
+        let v = mistral_session_update("fr", &["Dictia".into(), " ".into()]);
+        assert_eq!(
+            v,
+            json!({
+                "type": "session.update",
+                "session": {
+                    "audio_format": { "encoding": "pcm_s16le", "sample_rate": 16000 },
+                    "language": "fr",
+                    "context_bias": ["Dictia"]
+                }
+            })
+        );
+        let auto = mistral_session_update("", &[]);
+        assert_eq!(auto["session"].as_object().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn parses_mistral_events() {
+        let m = |t| parse_event(Dialect::Mistral, t).unwrap();
+        assert_eq!(
+            m(
+                r#"{"type":"session.created","session":{"request_id":"r","model":"v","audio_format":{"encoding":"pcm_s16le","sample_rate":16000}}}"#
+            ),
+            ServerEvent::SessionCreated
+        );
+        assert_eq!(
+            m(r#"{"type":"transcription.text.delta","text":"Bon"}"#),
+            ServerEvent::Delta("Bon".into())
+        );
+        assert_eq!(
+            m(
+                r#"{"type":"transcription.done","model":"v","text":"Bonjour.","usage":{},"language":"fr"}"#
+            ),
+            ServerEvent::Done("Bonjour.".into())
+        );
+        assert_eq!(
+            m(r#"{"type":"error","error":{"message":{"detail":"Invalid model"},"code":400}}"#),
+            ServerEvent::Error("Invalid model".into())
+        );
+        assert_eq!(
+            m(r#"{"type":"error","error":{"message":"quota"}}"#),
+            ServerEvent::Error("quota".into())
+        );
+        assert_eq!(
+            m(r#"{"type":"transcription.language","audio_language":"fr"}"#),
+            ServerEvent::Other
+        );
+        // Les événements de l'autre protocole sont ignorés.
+        assert_eq!(
+            m(r#"{"type":"input_audio_buffer.committed","item_id":"i1"}"#),
+            ServerEvent::Other
+        );
+    }
+
+    /// Faux serveur Voxtral Realtime : vérifie le protocole de Mistral.
+    #[tokio::test]
+    // Signature du rappel imposée par tungstenite.
+    #[allow(clippy::result_large_err)]
+    async fn end_to_end_mistral_session_against_fake_server() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut seen = (String::new(), String::new());
+            let mut ws = tokio_tungstenite::accept_hdr_async(
+                tcp,
+                |req: &tokio_tungstenite::tungstenite::handshake::server::Request, resp| {
+                    seen.0 = req.headers()["authorization"].to_str().unwrap().to_owned();
+                    seen.1 = req.uri().to_string();
+                    Ok(resp)
+                },
+            )
+            .await
+            .unwrap();
+            ws.send(WsMessage::text(r#"{"type":"session.created","session":{"request_id":"r","model":"voxtral-mini-transcribe-realtime-2602","audio_format":{"encoding":"pcm_s16le","sample_rate":16000}}}"#)).await.unwrap();
+            let mut received = Vec::new();
+            let mut bytes = 0usize;
+            while let Some(Ok(msg)) = ws.next().await {
+                let WsMessage::Text(text) = msg else { continue };
+                let v: Value = serde_json::from_str(&text).unwrap();
+                let kind = v["type"].as_str().unwrap().to_owned();
+                match kind.as_str() {
+                    "session.update" => {
+                        assert_eq!(v["session"]["audio_format"]["sample_rate"], 16000);
+                        assert_eq!(v["session"]["context_bias"], json!(["Dictia"]));
+                    }
+                    "input_audio.append" => {
+                        bytes += base64::engine::general_purpose::STANDARD
+                            .decode(v["audio"].as_str().unwrap())
+                            .unwrap()
+                            .len();
+                        if bytes == 3_200 {
+                            ws.send(WsMessage::text(
+                                r#"{"type":"transcription.text.delta","text":"Bonjour"}"#,
+                            ))
+                            .await
+                            .unwrap();
+                        }
+                    }
+                    "input_audio.end" => {
+                        for reply in [
+                            r#"{"type":"transcription.text.delta","text":" à tous."}"#,
+                            r#"{"type":"transcription.done","model":"v","text":"Bonjour à tous.","usage":{},"language":"fr"}"#,
+                        ] {
+                            ws.send(WsMessage::text(reply)).await.unwrap();
+                        }
+                    }
+                    _ => {}
+                }
+                received.push(kind);
+            }
+            (seen, received, bytes)
+        });
+
+        let (tx, rx) = mpsc::unbounded_channel();
+        let model = "voxtral-mini-transcribe-realtime-2602";
+        let config = RealtimeConfig {
+            dialect: Dialect::Mistral,
+            url: endpoint(Dialect::Mistral, &format!("http://{addr}/v1"), model),
+            api_key: "mk-test".into(),
+            model: model.into(),
+            language: "fr".into(),
+            prompt: String::new(),
+            keywords: vec!["Dictia".into()],
+            timeout: Duration::from_secs(5),
+        };
+        let mut deltas = Vec::new();
+        let session = tokio::spawn(async move {
+            let text = run_session(config, rx, |p| {
+                if let Progress::Delta(d) = p {
+                    deltas.push(d.to_owned());
+                }
+            })
+            .await;
+            (text, deltas)
+        });
+        for _ in 0..3 {
+            tx.send(vec![0i16; 1_600]).unwrap(); // 3 × 100 ms à 16 kHz
+        }
+        drop(tx);
+        let (text, deltas) = session.await.unwrap();
+        assert_eq!(text.unwrap(), "Bonjour à tous.");
+        assert_eq!(deltas, ["Bonjour", " à tous."]);
+
+        let ((auth, uri), received, bytes) = server.await.unwrap();
+        assert_eq!(auth, "Bearer mk-test");
+        assert_eq!(
+            uri,
+            format!("/v1/audio/transcriptions/realtime?model={model}")
+        );
+        assert_eq!(bytes, 3 * 1_600 * 2);
+        assert_eq!(
+            received,
+            [
+                "session.update",
+                "input_audio.append",
+                "input_audio.append",
+                "input_audio.append",
+                "input_audio.flush",
+                "input_audio.end"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn mistral_error_at_opening_is_reported() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+            ws.send(WsMessage::text(
+                r#"{"type":"error","error":{"message":{"detail":"Invalid model: x"}}}"#,
+            ))
+            .await
+            .unwrap();
+            while ws.next().await.is_some() {}
+        });
+        let (_tx, rx) = mpsc::unbounded_channel();
+        let config = RealtimeConfig {
+            dialect: Dialect::Mistral,
+            url: endpoint(Dialect::Mistral, &format!("http://{addr}/v1"), "x"),
+            api_key: "k".into(),
+            model: "x".into(),
+            language: String::new(),
+            prompt: String::new(),
+            keywords: vec![],
+            timeout: Duration::from_secs(5),
+        };
+        let err = run_session(config, rx, |_| {}).await.unwrap_err();
+        assert!(format!("{err:#}").contains("Invalid model: x"), "{err:#}");
     }
 }
