@@ -251,3 +251,22 @@ l'icône devient grise et le détail est écrit dans `dictia.log`.
 - Avec « Laisser le micro ouvert » et le micro de Windows, un changement de
   micro par défaut dans Windows n'est pris en compte qu'après une coupure du
   micro ou un changement de réglage.
+
+## Version Android
+
+Le dossier [`android/`](android/) contient une application Android (Kotlin,
+Android 8 ou plus récent). Elle affiche une bulle flottante par-dessus les
+autres applications. Touchez la bulle pour commencer à parler, puis touchez-la
+de nouveau : le texte est écrit dans le champ où se trouve le curseur.
+
+- **Installation** : téléchargez `dictia.apk` dans l'artefact
+  `dictia-android-…` de la CI GitHub Actions, puis ouvrez-le sur le téléphone
+  en autorisant les sources inconnues.
+- **Mise en route** : ouvrez Dictia, autorisez le micro, puis activez Dictia
+  dans *Accessibilité*. Si l'interrupteur est grisé, allez dans *Applications
+  › Dictia › ⋮ › Autoriser les paramètres restreints*.
+- **Réglages** : renseignez le fournisseur (OpenAI ou Mistral), la clé API,
+  le modèle, la langue et la limite des textes courts. Les réglages sont
+  gardés dans les préférences privées de l'application.
+- **Compilation** : `cd android && ./gradlew assembleDebug`. Il faut le JDK 17
+  et le SDK Android.
