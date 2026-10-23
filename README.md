@@ -259,9 +259,10 @@ Android 8 ou plus récent). Elle affiche une bulle flottante par-dessus les
 autres applications. Touchez la bulle pour commencer à parler, puis touchez-la
 de nouveau : le texte est écrit dans le champ où se trouve le curseur.
 
-- **Installation** : téléchargez `dictia.apk` dans l'artefact
-  `dictia-android-…` de la CI GitHub Actions, puis ouvrez-le sur le téléphone
-  en autorisant les sources inconnues.
+- **Installation** : sur le téléphone, ouvrez
+  <https://github.com/periebastien/Dictia/releases/download/android-latest/dictia.apk>
+  (connecté à GitHub), puis ouvrez le fichier téléchargé en autorisant les
+  sources inconnues. Cette adresse donne toujours la dernière version.
 - **Mise en route** : ouvrez Dictia, autorisez le micro, puis activez Dictia
   dans *Accessibilité*. Si l'interrupteur est grisé, allez dans *Applications
   › Dictia › ⋮ › Autoriser les paramètres restreints*.

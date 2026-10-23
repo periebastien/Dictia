@@ -45,6 +45,8 @@ jobs:
   android:
     name: Android (APK + tests)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: android
@@ -70,3 +72,16 @@ jobs:
           name: dictia-android-${{ github.sha }}
           path: android/dictia.apk
           if-no-files-found: error
+
+      # Lien fixe pour télécharger depuis le téléphone :
+      # https://github.com/<dépôt>/releases/download/android-latest/dictia.apk
+      - name: Publier la dernière APK
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-latest --yes --cleanup-tag || true
+          gh release create android-latest dictia.apk --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Dictia Android (dernière version)" \
+            --notes "APK produite automatiquement depuis la branche ${GITHUB_REF_NAME} (${GITHUB_SHA::7})."
