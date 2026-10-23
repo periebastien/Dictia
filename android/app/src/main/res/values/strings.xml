@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Dictia</string>
+    <string name="a11y_description">Affiche la bulle de dictée Dictia par-dessus vos applications et écrit le texte dicté dans le champ où se trouve le curseur. Dictia ne lit rien d\'autre.</string>
+</resources>
