@@ -13,6 +13,7 @@ use crate::config::{Config, Provider, ENGINE_REALTIME, ENGINE_STANDARD};
 use crate::history::{Entry, Problem};
 use crate::settings::{
     mask_api_key, suggested_models, Change, VocabEdit, ACCENTS, LANGUAGES, RELEASE_TAILS,
+    SHORT_TEXT_WORDS,
 };
 use crate::stats::ModelStats;
 use crate::transcription::realtime;
@@ -93,6 +94,8 @@ pub struct SettingsView {
     pub push_to_talk: String,
     pub indicator: bool,
     pub trailing_space: bool,
+    pub short_text_words: u32,
+    pub short_text_choices: Vec<u32>,
     pub live_typing: bool,
     pub release_tail_ms: u32,
     pub release_tails: Vec<u32>,
@@ -195,6 +198,8 @@ impl SettingsView {
             push_to_talk: config.hotkey.push_to_talk.clone(),
             indicator: config.indicator.enabled,
             trailing_space: config.inject.trailing_space,
+            short_text_words: config.inject.short_text_words,
+            short_text_choices: SHORT_TEXT_WORDS.to_vec(),
             live_typing: config.inject.live_typing,
             release_tail_ms: config.audio.release_tail_ms,
             release_tails: RELEASE_TAILS.to_vec(),

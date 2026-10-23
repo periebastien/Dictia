@@ -104,6 +104,9 @@ keep_mic_open = false
 [inject]
 # Ajoute une espace après le texte tapé, pour enchaîner les dictées.
 trailing_space = true
+# Retire la ponctuation (point final, virgules…) des textes courts : jusqu'à
+# ce nombre de mots. 0 : jamais.
+short_text_words = 3
 # Moteur realtime : tape le texte au fil de la dictée (mot par mot), dès
 # qu'aucune touche Ctrl, Alt ou Win n'est enfoncée. Le texte final, avec les
 # remplacements, corrige au besoin ce qui a été tapé.
@@ -267,6 +270,8 @@ impl Default for AudioConfig {
 #[serde(default)]
 pub struct InjectConfig {
     pub trailing_space: bool,
+    /// Textes d'au plus ce nombre de mots tapés sans ponctuation (0 : jamais).
+    pub short_text_words: u32,
     pub live_typing: bool,
 }
 
@@ -274,6 +279,7 @@ impl Default for InjectConfig {
     fn default() -> Self {
         Self {
             trailing_space: true,
+            short_text_words: 3,
             live_typing: true,
         }
     }
