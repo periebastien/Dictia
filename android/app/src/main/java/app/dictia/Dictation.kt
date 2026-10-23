@@ -5,11 +5,15 @@ package app.dictia
  * service de premier plan qui garde l'accès au micro (MicService).
  */
 object Dictation {
+    @Volatile
     private var recorder: Recorder? = null
     private var active = false
 
     /** Appelé (thread principal) si le micro ne démarre pas. */
     var onError: ((String) -> Unit)? = null
+
+    /** Volume actuel du micro (0 à 1). */
+    val level: Float get() = recorder?.level ?: 0f
 
     @Synchronized
     fun begin() {

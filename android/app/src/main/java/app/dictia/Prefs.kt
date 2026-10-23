@@ -35,6 +35,27 @@ data class Prefs(
         const val OPENAI_MODEL = "gpt-4o-transcribe"
         const val MISTRAL_MODEL = "voxtral-mini-latest"
 
+        /** Modèles proposés (comme sous Windows) ; « Autre… » permet d'en saisir un. */
+        fun suggestedModels(provider: String): List<String> =
+            if (provider == MISTRAL) {
+                listOf("voxtral-mini-latest", "voxtral-mini-transcribe-3")
+            } else {
+                listOf("gpt-4o-transcribe", "gpt-4o-mini-transcribe", "gpt-transcribe", "whisper-1")
+            }
+
+        /** Langues proposées (`auto` : reconnue par le modèle). */
+        val LANGUAGES = listOf(
+            "auto" to "Automatique",
+            "fr" to "Français",
+            "en" to "Anglais",
+            "es" to "Espagnol",
+            "de" to "Allemand",
+            "it" to "Italien",
+            "pt" to "Portugais",
+            "nl" to "Néerlandais",
+            "ar" to "Arabe",
+        )
+
         private fun store(context: Context) =
             context.getSharedPreferences("dictia", Context.MODE_PRIVATE)
 

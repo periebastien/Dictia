@@ -8,8 +8,11 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.View
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -19,26 +22,29 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
-import android.widget.Toast
 
-/** Écran de réglages : autorisations, fournisseur, clé API, modèle, langue. */
+/**
+ * Écran de réglages : autorisations, fournisseur, clé API, modèle, langue.
+ * Chaque modification est enregistrée aussitôt.
+ */
 class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var micButton: Button
     private lateinit var a11yButton: Button
-    private lateinit var openAi: RadioButton
     private lateinit var mistral: RadioButton
     private lateinit var keyField: EditText
-    private lateinit var modelField: EditText
-    private lateinit var languageField: EditText
-    private lateinit var shortWords: Spinner
+    private lateinit var modelSpinner: Spinner
+    private lateinit var customModel: EditText
 
-    /** Valeurs en cours d'édition (la clé et le modèle dépendent du fournisseur). */
-    private lateinit var draft: Prefs
+    /** Réglages en cours (la clé et le modèle dépendent du fournisseur). */
+    private lateinit var prefs: Prefs
+
+    /** Évite d'enregistrer pendant qu'on remplit les champs par programme. */
+    private var filling = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        draft = Prefs.load(this)
+        prefs = Prefs.load(this)
         val pad = dp(16)
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -65,7 +71,7 @@ class MainActivity : Activity() {
         ))
 
         column.addView(title("Transcription"))
-        openAi = RadioButton(this).apply { text = "OpenAI"; id = View.generateViewId() }
+        val openAi = RadioButton(this).apply { text = "OpenAI"; id = View.generateViewId() }
         mistral = RadioButton(this).apply { text = "Mistral"; id = View.generateViewId() }
         val providers = RadioGroup(this).apply {
             orientation = RadioGroup.HORIZONTAL
@@ -73,45 +79,60 @@ class MainActivity : Activity() {
             addView(mistral)
         }
         column.addView(providers)
+
         column.addView(label("Clé API"))
         keyField = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             isSingleLine = true
+            onChange { key ->
+                prefs = if (prefs.provider == Prefs.MISTRAL) {
+                    prefs.copy(mistralKey = key)
+                } else {
+                    prefs.copy(openAiKey = key)
+                }
+            }
         }
         column.addView(keyField)
+
         column.addView(label("Modèle"))
-        modelField = EditText(this).apply { isSingleLine = true }
-        column.addView(modelField)
-        column.addView(label("Langue (fr, en, es… ou auto)"))
-        languageField = EditText(this).apply { isSingleLine = true; setText(draft.language) }
-        column.addView(languageField)
+        modelSpinner = Spinner(this)
+        column.addView(modelSpinner)
+        customModel = EditText(this).apply {
+            hint = "Nom du modèle"
+            isSingleLine = true
+            visibility = View.GONE
+            onChange { name -> if (name.isNotEmpty()) setModel(name) }
+        }
+        column.addView(customModel)
+
+        column.addView(label("Langue"))
+        val languages = Prefs.LANGUAGES.toMutableList()
+        if (languages.none { it.first == prefs.language }) {
+            languages += prefs.language to prefs.language
+        }
+        column.addView(spinner(
+            languages.map { it.second },
+            languages.indexOfFirst { it.first == prefs.language },
+        ) { i -> prefs = prefs.copy(language = languages[i].first) })
 
         column.addView(label("Textes courts sans ponctuation"))
-        shortWords = Spinner(this).apply {
-            adapter = ArrayAdapter(
-                this@MainActivity,
-                android.R.layout.simple_spinner_dropdown_item,
-                SHORT_TEXT_WORDS.map { if (it == 0) "Non" else "Jusqu'à $it mot" + if (it > 1) "s" else "" },
-            )
-            setSelection(SHORT_TEXT_WORDS.indexOf(draft.shortTextWords).coerceAtLeast(0))
-        }
-        column.addView(shortWords)
+        column.addView(spinner(
+            SHORT_TEXT_WORDS.map { if (it == 0) "Non" else "Jusqu'à $it mot" + if (it > 1) "s" else "" },
+            SHORT_TEXT_WORDS.indexOf(prefs.shortTextWords),
+        ) { i -> prefs = prefs.copy(shortTextWords = SHORT_TEXT_WORDS[i]) })
 
-        column.addView(Button(this).apply {
-            text = "Enregistrer"
-            setOnClickListener { save() }
-        })
         column.addView(hint(
-            "Utilisation : touchez la bulle pour parler, touchez-la de nouveau pour écrire le " +
-                "texte là où se trouve le curseur. Faites-la glisser pour la déplacer ; un appui " +
+            "Les réglages sont enregistrés automatiquement.\n\nUtilisation : la bulle apparaît " +
+                "quand un champ de saisie a le curseur. Touchez-la pour parler, touchez-la de " +
+                "nouveau pour écrire le texte. Faites-la glisser pour la déplacer ; un appui " +
                 "long ouvre ces réglages.",
         ))
 
-        if (draft.provider == Prefs.MISTRAL) mistral.isChecked = true else openAi.isChecked = true
+        if (prefs.provider == Prefs.MISTRAL) mistral.isChecked = true else openAi.isChecked = true
         showProvider()
         providers.setOnCheckedChangeListener { _, _ ->
-            keepProviderFields()
-            draft = draft.copy(provider = if (mistral.isChecked) Prefs.MISTRAL else Prefs.OPENAI)
+            prefs = prefs.copy(provider = if (mistral.isChecked) Prefs.MISTRAL else Prefs.OPENAI)
+            prefs.save(this)
             showProvider()
         }
 
@@ -151,30 +172,70 @@ class MainActivity : Activity() {
         return enabled.split(':').any { ComponentName.unflattenFromString(it) == me }
     }
 
+    /** Remplit la clé et la liste des modèles du fournisseur choisi. */
     private fun showProvider() {
-        val isMistral = draft.provider == Prefs.MISTRAL
-        keyField.setText(if (isMistral) draft.mistralKey else draft.openAiKey)
-        modelField.setText(if (isMistral) draft.mistralModel else draft.openAiModel)
-    }
+        filling = true
+        keyField.setText(if (prefs.provider == Prefs.MISTRAL) prefs.mistralKey else prefs.openAiKey)
+        val models = Prefs.suggestedModels(prefs.provider)
+        val current = prefs.model
+        val custom = current !in models
+        val labels = models + OTHER
+        modelSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+        modelSpinner.setSelection(if (custom) labels.lastIndex else models.indexOf(current))
+        customModel.setText(if (custom) current else "")
+        customModel.visibility = if (custom) View.VISIBLE else View.GONE
+        modelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, i: Int, id: Long) {
+                if (filling) return
+                if (i < models.size) {
+                    customModel.visibility = View.GONE
+                    setModel(models[i])
+                } else {
+                    customModel.visibility = View.VISIBLE
+                    customModel.requestFocus()
+                }
+            }
 
-    private fun keepProviderFields() {
-        val key = keyField.text.toString().trim()
-        val model = modelField.text.toString().trim()
-        draft = if (draft.provider == Prefs.MISTRAL) {
-            draft.copy(mistralKey = key, mistralModel = model.ifEmpty { Prefs.MISTRAL_MODEL })
-        } else {
-            draft.copy(openAiKey = key, openAiModel = model.ifEmpty { Prefs.OPENAI_MODEL })
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
+        // Le Spinner signale sa sélection initiale après coup : on attend.
+        modelSpinner.post { filling = false }
     }
 
-    private fun save() {
-        keepProviderFields()
-        draft = draft.copy(
-            language = languageField.text.toString().trim().ifEmpty { "fr" },
-            shortTextWords = SHORT_TEXT_WORDS[shortWords.selectedItemPosition.coerceAtLeast(0)],
-        )
-        draft.save(this)
-        Toast.makeText(this, "Réglages enregistrés", Toast.LENGTH_SHORT).show()
+    private fun setModel(name: String) {
+        prefs = if (prefs.provider == Prefs.MISTRAL) {
+            prefs.copy(mistralModel = name)
+        } else {
+            prefs.copy(openAiModel = name)
+        }
+        prefs.save(this)
+    }
+
+    private fun spinner(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) =
+        Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, labels)
+            setSelection(selected.coerceAtLeast(0))
+            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, i: Int, id: Long) {
+                    onSelect(i)
+                    prefs.save(this@MainActivity)
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+        }
+
+    /** Enregistre à chaque frappe (hors remplissage par programme). */
+    private fun EditText.onChange(apply: (String) -> Unit) {
+        addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                if (filling) return
+                apply(s.toString().trim())
+                prefs.save(this@MainActivity)
+            }
+        })
     }
 
     private fun title(text: String) = TextView(this).apply {
@@ -199,5 +260,6 @@ class MainActivity : Activity() {
 
     private companion object {
         val SHORT_TEXT_WORDS = listOf(0, 1, 2, 3, 4, 5, 6)
+        const val OTHER = "Autre…"
     }
 }

@@ -17,6 +17,11 @@ class Recorder {
     @Volatile
     private var running = false
 
+    /** Volume du micro entre 0 et 1, pour l'animation de la bulle. */
+    @Volatile
+    var level = 0f
+        private set
+
     @SuppressLint("MissingPermission") // vérifiée avant le démarrage de la dictée
     fun start() {
         val min = AudioRecord.getMinBufferSize(
@@ -37,10 +42,13 @@ class Recorder {
         record = r
         running = true
         thread = Thread({
-            val chunk = ByteArray(3200) // 100 ms
+            val chunk = ByteArray(1600) // 50 ms
             while (running) {
                 val n = r.read(chunk, 0, chunk.size)
-                if (n > 0) synchronized(pcm) { pcm.write(chunk, 0, n) }
+                if (n > 0) {
+                    synchronized(pcm) { pcm.write(chunk, 0, n) }
+                    level = Audio.level(chunk, n)
+                }
             }
         }, "dictia-micro").apply { start() }
     }
@@ -63,6 +71,23 @@ object Audio {
     private const val FRAME = RATE / 50 // 20 ms
     private const val THRESHOLD = 500.0 // RMS, environ -36 dBFS
     private const val MARGIN_FRAMES = 15 // 300 ms gardés autour de la parole
+
+    /**
+     * Volume RMS d'un bloc PCM ramené entre 0 et 1 sur une échelle en dB :
+     * -60 dBFS (silence) → 0, -15 dBFS (voix forte) → 1 (comme sous Windows).
+     */
+    fun level(pcm: ByteArray, length: Int): Float {
+        val samples = ByteBuffer.wrap(pcm, 0, length).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+        val count = samples.remaining()
+        if (count == 0) return 0f
+        var sum = 0.0
+        for (i in 0 until count) {
+            val v = samples.get(i) / 32768.0
+            sum += v * v
+        }
+        val db = 20 * Math.log10(Math.sqrt(sum / count).coerceAtLeast(1e-9))
+        return ((db + 60) / 45).toFloat().coerceIn(0f, 1f)
+    }
 
     /**
      * Supprime les silences de début et de fin (envoi plus court, réponse plus

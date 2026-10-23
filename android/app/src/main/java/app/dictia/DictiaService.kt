@@ -8,18 +8,17 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import android.widget.TextView
 import android.widget.Toast
 import java.util.concurrent.Executors
 import kotlin.math.abs
@@ -29,7 +28,8 @@ import kotlin.math.abs
  * applications et écrit le texte dicté dans le champ qui a le curseur.
  *
  * La bulle n'est pas focalisable : la toucher laisse le curseur (et le
- * clavier) dans l'application en cours.
+ * clavier) dans l'application en cours. Elle n'apparaît que lorsqu'un champ
+ * de saisie a le curseur (ou pendant une dictée).
  */
 class DictiaService : AccessibilityService() {
     private enum class State { IDLE, RECORDING, PROCESSING }
@@ -37,7 +37,8 @@ class DictiaService : AccessibilityService() {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private lateinit var windowManager: WindowManager
-    private var bubble: TextView? = null
+    private var bubble: BubbleView? = null
+    private var bubbleShown = true
     private lateinit var params: WindowManager.LayoutParams
     private var state = State.IDLE
 
@@ -56,6 +57,13 @@ class DictiaService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         event.source?.takeIf { it.isEditable }?.let { lastEditable = it }
+        // Regroupe les rafales d'événements avant de chercher le champ actif.
+        main.removeCallbacks(refreshVisibility)
+        main.postDelayed(refreshVisibility, 120)
+    }
+
+    private val refreshVisibility = Runnable {
+        showBubbleIf(state != State.IDLE || currentEditable() != null)
     }
 
     override fun onInterrupt() = Unit
@@ -63,6 +71,7 @@ class DictiaService : AccessibilityService() {
     override fun onDestroy() {
         Dictation.onError = null
         Dictation.end()
+        main.removeCallbacks(refreshVisibility)
         bubble?.let { runCatching { windowManager.removeView(it) } }
         bubble = null
         worker.shutdown()
@@ -73,7 +82,7 @@ class DictiaService : AccessibilityService() {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun showBubble() {
-        val size = (56 * resources.displayMetrics.density).toInt()
+        val size = (40 * resources.displayMetrics.density).toInt()
         val (x, y) = Prefs.bubblePosition(this)
         params = WindowManager.LayoutParams(
             size,
@@ -87,12 +96,9 @@ class DictiaService : AccessibilityService() {
             this.x = x
             this.y = y
         }
-        val view = TextView(this).apply {
-            gravity = Gravity.CENTER
-            textSize = 22f
-            setTextColor(0xFFFFFFFF.toInt())
-            elevation = 8 * resources.displayMetrics.density
+        val view = BubbleView(this).apply {
             contentDescription = "Dictia"
+            level = { Dictation.level }
         }
         val slop = ViewConfiguration.get(this).scaledTouchSlop
         var downX = 0f
@@ -139,25 +145,33 @@ class DictiaService : AccessibilityService() {
             }
             true
         }
+        windowManager.addView(view, params)
         bubble = view
         setState(State.IDLE)
-        windowManager.addView(view, params)
+    }
+
+    /** Affiche ou cache la bulle ; cachée, elle laisse passer les touchers. */
+    private fun showBubbleIf(show: Boolean) {
+        val view = bubble ?: return
+        if (show == bubbleShown) return
+        bubbleShown = show
+        view.visibility = if (show) View.VISIBLE else View.GONE
+        params.flags = if (show) {
+            params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        } else {
+            params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        }
+        windowManager.updateViewLayout(view, params)
     }
 
     private fun setState(newState: State) {
         state = newState
-        val view = bubble ?: return
-        val (color, label) = when (newState) {
-            State.IDLE -> 0xFF5B5BD6.toInt() to "🎤"
-            State.RECORDING -> 0xFFE5484D.toInt() to "■"
-            State.PROCESSING -> 0xFFF5A623.toInt() to "…"
+        bubble?.mode = when (newState) {
+            State.IDLE -> BubbleView.Mode.IDLE
+            State.RECORDING -> BubbleView.Mode.LISTENING
+            State.PROCESSING -> BubbleView.Mode.THINKING
         }
-        view.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(color)
-            alpha = if (newState == State.IDLE) 200 else 255
-        }
-        view.text = label
+        if (newState == State.IDLE) refreshVisibility.run()
     }
 
     // --- Dictée ------------------------------------------------------------
@@ -218,15 +232,19 @@ class DictiaService : AccessibilityService() {
 
     // --- Frappe du texte ---------------------------------------------------
 
-    private fun focusedEditable(): AccessibilityNodeInfo? {
+    /** Champ de saisie qui a le curseur en ce moment, s'il y en a un. */
+    private fun currentEditable(): AccessibilityNodeInfo? {
         rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
             ?.takeIf { it.isEditable }?.let { return it }
         for (window in windows) {
             window.root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
                 ?.takeIf { it.isEditable }?.let { return it }
         }
-        return lastEditable?.takeIf { it.refresh() && it.isEditable }
+        return null
     }
+
+    private fun focusedEditable(): AccessibilityNodeInfo? =
+        currentEditable() ?: lastEditable?.takeIf { it.refresh() && it.isEditable }
 
     private fun insert(text: String) {
         val node = focusedEditable()
