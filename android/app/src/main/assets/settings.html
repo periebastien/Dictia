@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Dictia</title>
+<style>
+:root{--accent:#F59E0B;--bg:#1B1B21;--panel:#24242B;--chip:#2E2E37;--text:#F2F2F5;--muted:#A1A1AA;--soft:#D4D4D8;--line:rgba(255,255,255,0.07);--ok:#34D399;--bad:#F87171}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:15px}
+body{display:flex;flex-direction:column}
+button,input,select,textarea{font:inherit;color:inherit}
+header{flex-shrink:0;display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.logo{width:34px;height:34px;border-radius:9px;background:var(--accent);display:flex;align-items:center;justify-content:center}
+.brand{font-size:18px;font-weight:650;flex-grow:1}
+.pill{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:550;background:var(--chip)}
+.pill .dot{width:7px;height:7px;border-radius:50%}
+main{flex-grow:1;overflow-y:auto;padding:16px 16px 24px}
+.view{display:none;flex-direction:column;gap:14px}
+.view.on{display:flex}
+.section{font-size:12px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:10px 2px 0}
+.card{display:flex;flex-direction:column;border-radius:14px;background:var(--panel);border:1px solid var(--line);overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;min-height:56px;padding:10px 14px}
+.row+.row{border-top:1px solid var(--line)}
+.row.col{flex-direction:column;align-items:stretch;gap:8px}
+.lbl{flex-grow:1;min-width:0}
+.lbl>:first-child{font-size:15px}
+.lbl>*+*{font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.4}
+.field{width:100%;height:44px;padding:0 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.1);background:#1F1F25;color:var(--text);outline:none}
+.field:focus{border-color:var(--accent)}
+textarea.field{height:auto;min-height:84px;padding:10px 12px;line-height:1.45;resize:vertical}
+select.field{appearance:none;-webkit-appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);background-position:calc(100% - 18px) 19px,calc(100% - 13px) 19px;background-size:5px 5px;background-repeat:no-repeat;padding-right:34px}
+.seg{display:flex;padding:3px;border-radius:10px;background:#1F1F25;border:1px solid var(--line)}
+.seg button{flex:1;height:38px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-weight:550}
+.seg button.on{background:var(--accent);color:#0E0E12;font-weight:650}
+.btn{height:40px;padding:0 16px;border:0;border-radius:10px;background:var(--accent);color:#0E0E12;font-weight:650;flex-shrink:0}
+.btn.ghost{background:#33333C;color:var(--text);font-weight:550}
+.btn:active,.seg button:active,.mini:active{opacity:.75}
+.state{font-size:13px;font-weight:600;flex-shrink:0}
+.state.ok{color:var(--ok)}
+.hint{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0 2px}
+.link{border:0;background:none;padding:0;color:var(--accent);text-decoration:underline;font-size:inherit}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:2px;height:34px;padding:0 4px 0 12px;border-radius:9px;background:var(--chip);border:1px solid var(--line);font-size:14px}
+.mini{width:30px;height:30px;border:0;border-radius:7px;background:transparent;color:var(--muted);font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center}
+.inline{display:flex;gap:8px}
+.inline .field{flex-grow:1;min-width:0}
+.rep{display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr) 30px;align-items:center;gap:8px;min-height:48px;padding:0 6px 0 14px}
+.rep+.rep{border-top:1px solid var(--line)}
+.rep .from{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rep .to{font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arrow{color:var(--muted)}
+.empty{padding:16px 14px;color:var(--muted);font-size:13px}
+nav{flex-shrink:0;display:flex;border-top:1px solid var(--line);background:#1F1F25}
+nav button{flex:1;height:60px;border:0;background:transparent;color:var(--muted);font-size:12px;font-weight:550;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+nav button.on{color:var(--accent)}
+#toast{position:fixed;left:16px;right:16px;bottom:76px;padding:12px 14px;border-radius:12px;background:#33333C;color:var(--text);font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.4);opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s;pointer-events:none}
+#toast.on{opacity:1;transform:none}
+.version{text-align:center;font-size:12px;color:var(--muted);margin-top:8px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0E0E12" stroke-width="2.6" stroke-linecap="round"><rect x="8" y="1.2" width="8" height="14.2" rx="4" fill="#0E0E12" stroke="none"/><path d="M5 9.5V12a7 7 0 0 0 14 0V9.5M12 19v3.4"/></svg></div>
+  <div class="brand">Dictia</div>
+  <div class="pill" id="pill"><span class="dot" id="pill-dot"></span><span id="pill-text">…</span></div>
+</header>
+
+<main>
+  <section class="view on" id="view-reglages">
+    <div id="setup">
+      <div class="section">Mise en route</div>
+      <div class="card" style="margin-top:8px">
+        <div class="row">
+          <div class="lbl"><div>Micro</div><div>Pour entendre votre voix.</div></div>
+          <span class="state ok" id="mic-ok">Autorisé ✓</span>
+          <button class="btn" id="mic-btn" data-action="mic">Autoriser</button>
+        </div>
+        <div class="row">
+          <div class="lbl"><div>Bulle flottante</div><div>Dans Accessibilité › Applications installées › Dictia.</div></div>
+          <span class="state ok" id="bubble-ok">Active ✓</span>
+          <button class="btn" id="bubble-btn" data-action="accessibility">Activer</button>
+        </div>
+      </div>
+      <p class="hint" id="restricted" style="margin-top:8px">Interrupteur grisé ? Ouvrez les <button class="link" data-action="app_settings">infos de l'application</button>, menu ⋮ › « Autoriser les paramètres restreints ».</p>
+    </div>
+
+    <div class="section">Transcription</div>
+    <div class="card">
+      <div class="row col">
+        <div class="lbl"><div>Fournisseur</div></div>
+        <div class="seg" id="provider">
+          <button data-value="openai">OpenAI</button>
+          <button data-value="mistral">Mistral</button>
+        </div>
+      </div>
+      <div class="row col">
+        <div class="lbl"><div>Clé API</div><div id="key-sub">Gardée sur ce téléphone uniquement.</div></div>
+        <div class="inline">
+          <input class="field" id="key" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Collez votre clé">
+          <button class="btn" id="key-save">OK</button>
+        </div>
+      </div>
+      <div class="row col">
+        <div class="lbl"><div>Mode</div><div id="engine-sub"></div></div>
+        <div class="seg" id="engine">
+          <button data-value="standard">Standard</button>
+          <button data-value="realtime">Temps réel</button>
+        </div>
+      </div>
+      <div class="row col">
+        <div class="lbl"><div>Modèle</div></div>
+        <select class="field" id="model"></select>
+        <div class="inline" id="custom-row" style="display:none">
+          <input class="field" id="custom" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Nom du modèle">
+          <button class="btn" id="custom-save">OK</button>
+        </div>
+      </div>
+      <div class="row col">
+        <div class="lbl"><div>Langue</div></div>
+        <select class="field" id="language"></select>
+      </div>
+    </div>
+
+    <div class="section">Texte</div>
+    <div class="card">
+      <div class="row col">
+        <div class="lbl"><div>Textes courts sans ponctuation</div><div>Retire « . , ? ! » ajoutés par le modèle aux textes courts.</div></div>
+        <select class="field" id="short"></select>
+      </div>
+    </div>
+
+    <p class="hint">La bulle apparaît quand un champ de saisie a le curseur. Touchez-la pour parler, puis de nouveau pour écrire le texte. Faites-la glisser pour la déplacer ; un appui long ouvre cet écran.</p>
+    <div class="version" id="version"></div>
+  </section>
+
+  <section class="view" id="view-vocabulaire">
+    <div class="section">Contexte</div>
+    <div class="card">
+      <div class="row col">
+        <div class="lbl"><div>Style attendu</div><div>Le modèle imite la ponctuation et le registre de ce texte.</div></div>
+        <textarea class="field" id="context" rows="3"></textarea>
+      </div>
+    </div>
+
+    <div class="section">Termes <span id="term-count" style="text-transform:none;letter-spacing:0;font-weight:500"></span></div>
+    <div class="card">
+      <div class="row col">
+        <div class="lbl"><div>Noms propres, sigles, mots techniques</div><div>Le modèle les écrira correctement.</div></div>
+        <div class="chips" id="terms"></div>
+        <div class="inline">
+          <input class="field" id="new-term" autocomplete="off" placeholder="Ajouter un terme…">
+          <button class="btn" id="add-term">Ajouter</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">Remplacements</div>
+    <div class="card" id="replacements"></div>
+    <div class="card">
+      <div class="row col">
+        <div class="lbl"><div>Nouveau remplacement</div><div>Écrivez \n dans « Écrire… » pour un retour à la ligne.</div></div>
+        <input class="field" id="rep-from" autocomplete="off" placeholder="Quand je dis…">
+        <div class="inline">
+          <input class="field" id="rep-to" autocomplete="off" placeholder="Écrire…">
+          <button class="btn" id="add-rep">Ajouter</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">Échanger avec le PC</div>
+    <div class="card">
+      <div class="row col">
+        <div class="lbl"><div>Fichier vocab.toml</div><div>Le même fichier que sur Windows (%APPDATA%\Dictia\vocab.toml, bouton « Ouvrir le dossier » des réglages PC). Envoyez-le-vous par mail ou Drive, puis importez-le ici.</div></div>
+        <div class="inline">
+          <button class="btn ghost" style="flex:1" data-action="import">Importer</button>
+          <button class="btn ghost" style="flex:1" data-action="export">Exporter</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button class="on" data-tab="reglages"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>Réglages</button>
+  <button data-tab="vocabulaire"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>Vocabulaire</button>
+</nav>
+<div id="toast"></div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const OTHER = '__autre__';
+let S = null;
+let customOpen = false;
+
+function el(tag, attrs, children) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'text') e.textContent = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  (children || []).forEach((c) => e.append(c));
+  return e;
+}
+
+let toastTimer = 0;
+window.toast = function (text) {
+  const t = $('toast');
+  t.textContent = text;
+  t.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('on'), 3200);
+};
+
+function change(kind, value) { Android.change(kind, String(value)); }
+
+window.onState = function (s) {
+  S = s;
+  // Mise en route
+  $('mic-ok').style.display = s.mic ? '' : 'none';
+  $('mic-btn').style.display = s.mic ? 'none' : '';
+  $('bubble-ok').style.display = s.bubble ? '' : 'none';
+  $('bubble-btn').style.display = s.bubble ? 'none' : '';
+  $('restricted').style.display = s.bubble ? 'none' : '';
+  const ready = s.mic && s.bubble && s.keyHint[s.provider];
+  $('pill-text').textContent = ready ? 'Prête' : 'À configurer';
+  $('pill-dot').style.background = ready ? 'var(--ok)' : 'var(--accent)';
+
+  // Transcription
+  for (const b of $('provider').children) b.classList.toggle('on', b.dataset.value === s.provider);
+  for (const b of $('engine').children) b.classList.toggle('on', b.dataset.value === s.engine);
+  const hint = s.keyHint[s.provider];
+  $('key').placeholder = hint ? 'Clé enregistrée ' + hint : 'Collez votre clé ' + (s.provider === 'mistral' ? 'Mistral' : 'OpenAI');
+  $('key-sub').textContent = hint ? 'Enregistrée. Collez-en une autre pour la remplacer.' : 'Gardée sur ce téléphone uniquement.';
+  $('engine-sub').textContent = s.engine === 'realtime'
+    ? 'L\'audio part pendant que vous parlez : le texte arrive presque aussitôt. Repli automatique sur Standard en cas d\'échec.'
+    : 'L\'audio est envoyé à la fin de la dictée.';
+
+  const key = s.provider + '/' + s.engine;
+  const list = s.models[key];
+  const current = s.selected[key];
+  const custom = !list.includes(current);
+  $('model').replaceChildren(...list.map((m) => el('option', { value: m, text: m })),
+    el('option', { value: OTHER, text: custom ? 'Autre : ' + current : 'Autre…' }));
+  $('model').value = custom ? OTHER : current;
+  $('custom-row').style.display = custom || customOpen ? '' : 'none';
+  if (document.activeElement !== $('custom')) $('custom').value = custom ? current : '';
+
+  $('language').replaceChildren(...s.languages.map(([v, t]) => el('option', { value: v, text: t })));
+  if (!s.languages.some(([v]) => v === s.language)) $('language').append(el('option', { value: s.language, text: s.language }));
+  $('language').value = s.language;
+
+  $('short').replaceChildren(...s.shortChoices.map((n) => el('option', { value: n, text: n === 0 ? 'Non' : 'Jusqu\'à ' + n + (n > 1 ? ' mots' : ' mot') })));
+  $('short').value = s.shortWords;
+  $('version').textContent = 'Dictia ' + s.version;
+
+  renderVocab();
+};
+
+// ---- réglages ----
+$('provider').addEventListener('click', (e) => { const v = e.target.closest('button')?.dataset.value; if (v) { customOpen = false; change('provider', v); } });
+$('engine').addEventListener('click', (e) => { const v = e.target.closest('button')?.dataset.value; if (v) { customOpen = false; change('engine', v); } });
+function saveKey() {
+  const v = $('key').value.trim();
+  if (!v) return;
+  change('key', v);
+  $('key').value = '';
+  $('key').blur();
+  toast('Clé enregistrée.');
+}
+$('key-save').addEventListener('click', saveKey);
+$('key').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveKey(); });
+$('model').addEventListener('change', () => {
+  if ($('model').value === OTHER) { customOpen = true; $('custom-row').style.display = ''; $('custom').focus(); return; }
+  customOpen = false;
+  change('model', $('model').value);
+});
+function saveCustom() { const v = $('custom').value.trim(); if (v) { change('model', v); $('custom').blur(); toast('Modèle enregistré.'); } }
+$('custom-save').addEventListener('click', saveCustom);
+$('custom').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveCustom(); });
+$('language').addEventListener('change', () => change('language', $('language').value));
+$('short').addEventListener('change', () => change('short_words', $('short').value));
+document.addEventListener('click', (e) => { const a = e.target.closest('[data-action]'); if (a) Android.action(a.dataset.action); });
+
+// ---- vocabulaire ----
+function saveVocab() { Android.vocab(JSON.stringify(S.vocab)); }
+function renderVocab() {
+  const v = S.vocab;
+  if (document.activeElement !== $('context')) $('context').value = v.context;
+  const n = v.terms.length;
+  $('term-count').textContent = '· ' + n + (n > 1 ? ' termes' : ' terme');
+  $('terms').replaceChildren(...v.terms.map((t) => el('span', { class: 'chip' }, [t,
+    el('button', { class: 'mini', 'aria-label': 'Retirer ' + t, text: '×', onclick: () => { v.terms = v.terms.filter((x) => x !== t); renderVocab(); saveVocab(); } })])));
+  const show = (s) => s.replace(/\n/g, '↵');
+  $('replacements').replaceChildren(...(v.replacements.length ? v.replacements.map((r, i) => el('div', { class: 'rep' }, [
+    el('span', { class: 'from', text: show(r.from) }), el('span', { class: 'arrow', text: '→' }), el('span', { class: 'to', text: show(r.to) || '(rien)' }),
+    el('button', { class: 'mini', 'aria-label': 'Supprimer', text: '×', onclick: () => { v.replacements.splice(i, 1); renderVocab(); saveVocab(); } })]))
+    : [el('div', { class: 'empty', text: 'Aucun remplacement. Exemple : « point virgule » → « ; ».' })]));
+}
+$('context').addEventListener('change', () => { S.vocab.context = $('context').value.trim(); saveVocab(); });
+function addTerm() {
+  const t = $('new-term').value.trim();
+  $('new-term').value = '';
+  if (t && !S.vocab.terms.includes(t)) { S.vocab.terms.push(t); renderVocab(); saveVocab(); }
+}
+$('add-term').addEventListener('click', addTerm);
+$('new-term').addEventListener('keydown', (e) => { if (e.key === 'Enter') addTerm(); });
+$('add-rep').addEventListener('click', () => {
+  const from = $('rep-from').value.trim();
+  const to = $('rep-to').value.replace(/\\n/g, '\n');
+  if (!from) { toast('Indiquez le texte à remplacer.'); return; }
+  S.vocab.replacements = S.vocab.replacements.filter((r) => r.from !== from)
+    .concat([{ from, to, whole_word: true, case_sensitive: false }]);
+  $('rep-from').value = ''; $('rep-to').value = '';
+  renderVocab(); saveVocab();
+});
+
+// ---- onglets ----
+document.querySelector('nav').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  for (const x of document.querySelectorAll('nav button')) x.classList.toggle('on', x === b);
+  for (const v of document.querySelectorAll('.view')) v.classList.toggle('on', v.id === 'view-' + b.dataset.tab);
+  document.querySelector('main').scrollTop = 0;
+});
+
+Android.ready();
+</script>
+</body>
+</html>

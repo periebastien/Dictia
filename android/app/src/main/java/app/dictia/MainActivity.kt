@@ -1,167 +1,156 @@
 package app.dictia
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.text.Editable
-import android.text.InputType
-import android.text.TextWatcher
-import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
-import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
-import android.widget.ScrollView
-import android.widget.Spinner
-import android.widget.TextView
+import android.view.WindowInsets
+import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
- * Écran de réglages : autorisations, fournisseur, clé API, modèle, langue.
- * Chaque modification est enregistrée aussitôt.
+ * Écran de Dictia (réglages et vocabulaire). L'interface est une page locale
+ * (`assets/settings.html`, même charte que la version Windows) reliée au code
+ * par l'objet JavaScript `Android`.
  */
 class MainActivity : Activity() {
-    private lateinit var status: TextView
-    private lateinit var micButton: Button
-    private lateinit var a11yButton: Button
-    private lateinit var mistral: RadioButton
-    private lateinit var keyField: EditText
-    private lateinit var modelSpinner: Spinner
-    private lateinit var customModel: EditText
+    private lateinit var web: WebView
 
-    /** Réglages en cours (la clé et le modèle dépendent du fournisseur). */
-    private lateinit var prefs: Prefs
-
-    /** Évite d'enregistrer pendant qu'on remplit les champs par programme. */
-    private var filling = false
-
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        prefs = Prefs.load(this)
-        val pad = dp(16)
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad, pad, pad)
+        val background = Color.parseColor("#1B1B21")
+        window.decorView.setBackgroundColor(background)
+        val root = FrameLayout(this).apply { setBackgroundColor(background) }
+        web = WebView(this).apply {
+            setBackgroundColor(background)
+            settings.javaScriptEnabled = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            // Page locale uniquement : aucun lien ne s'ouvre dans l'application.
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
+            }
+            addJavascriptInterface(Bridge(), "Android")
+            loadUrl("file:///android_asset/settings.html")
         }
-
-        column.addView(title("Mise en route"))
-        status = TextView(this).apply { textSize = 15f }
-        column.addView(status)
-        micButton = Button(this).apply {
-            text = "1. Autoriser le micro"
-            setOnClickListener { requestPermissions() }
-        }
-        column.addView(micButton)
-        a11yButton = Button(this).apply {
-            text = "2. Activer la bulle Dictia"
-            setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        }
-        column.addView(a11yButton)
-        column.addView(hint(
-            "Dans Accessibilité, ouvrez « Applications installées » (ou « Services ») › Dictia " +
-                "et activez-le. Si l'interrupteur est grisé : Paramètres › Applications › " +
-                "Dictia › menu ⋮ › « Autoriser les paramètres restreints », puis recommencez.",
-        ))
-
-        column.addView(title("Transcription"))
-        val openAi = RadioButton(this).apply { text = "OpenAI"; id = View.generateViewId() }
-        mistral = RadioButton(this).apply { text = "Mistral"; id = View.generateViewId() }
-        val providers = RadioGroup(this).apply {
-            orientation = RadioGroup.HORIZONTAL
-            addView(openAi)
-            addView(mistral)
-        }
-        column.addView(providers)
-
-        column.addView(label("Clé API"))
-        keyField = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            isSingleLine = true
-            onChange { key ->
-                prefs = if (prefs.provider == Prefs.MISTRAL) {
-                    prefs.copy(mistralKey = key)
-                } else {
-                    prefs.copy(openAiKey = key)
-                }
+        root.addView(web)
+        // Android 15 dessine sous les barres système : on garde le contenu
+        // entre la barre d'état, la barre de navigation et le clavier.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+            root.setOnApplyWindowInsetsListener { view, insets ->
+                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                WindowInsets.CONSUMED
             }
         }
-        column.addView(keyField)
-
-        column.addView(label("Modèle"))
-        modelSpinner = Spinner(this)
-        column.addView(modelSpinner)
-        customModel = EditText(this).apply {
-            hint = "Nom du modèle"
-            isSingleLine = true
-            visibility = View.GONE
-            onChange { name -> if (name.isNotEmpty()) setModel(name) }
-        }
-        column.addView(customModel)
-
-        column.addView(label("Langue"))
-        val languages = Prefs.LANGUAGES.toMutableList()
-        if (languages.none { it.first == prefs.language }) {
-            languages += prefs.language to prefs.language
-        }
-        column.addView(spinner(
-            languages.map { it.second },
-            languages.indexOfFirst { it.first == prefs.language },
-        ) { i -> prefs = prefs.copy(language = languages[i].first) })
-
-        column.addView(label("Textes courts sans ponctuation"))
-        column.addView(spinner(
-            SHORT_TEXT_WORDS.map { if (it == 0) "Non" else "Jusqu'à $it mot" + if (it > 1) "s" else "" },
-            SHORT_TEXT_WORDS.indexOf(prefs.shortTextWords),
-        ) { i -> prefs = prefs.copy(shortTextWords = SHORT_TEXT_WORDS[i]) })
-
-        column.addView(hint(
-            "Les réglages sont enregistrés automatiquement.\n\nUtilisation : la bulle apparaît " +
-                "quand un champ de saisie a le curseur. Touchez-la pour parler, touchez-la de " +
-                "nouveau pour écrire le texte. Faites-la glisser pour la déplacer ; un appui " +
-                "long ouvre ces réglages.",
-        ))
-
-        if (prefs.provider == Prefs.MISTRAL) mistral.isChecked = true else openAi.isChecked = true
-        showProvider()
-        providers.setOnCheckedChangeListener { _, _ ->
-            prefs = prefs.copy(provider = if (mistral.isChecked) Prefs.MISTRAL else Prefs.OPENAI)
-            prefs.save(this)
-            showProvider()
-        }
-
-        setContentView(ScrollView(this).apply { addView(column) })
+        setContentView(root)
     }
 
     override fun onResume() {
         super.onResume()
-        val mic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        val a11y = accessibilityEnabled()
-        micButton.visibility = if (mic) View.GONE else View.VISIBLE
-        a11yButton.text = if (a11y) "Réglages d'accessibilité" else "2. Activer la bulle Dictia"
-        status.text = buildString {
-            append(if (mic) "✅ Micro autorisé\n" else "❌ Micro non autorisé\n")
-            append(if (a11y) "✅ Bulle active" else "❌ Bulle inactive")
-        }
-    }
-
-    private fun requestPermissions() {
-        val wanted = mutableListOf(Manifest.permission.RECORD_AUDIO)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            wanted += Manifest.permission.POST_NOTIFICATIONS
-        }
-        requestPermissions(wanted.toTypedArray(), 1)
+        pushState()
     }
 
     override fun onRequestPermissionsResult(code: Int, permissions: Array<String>, results: IntArray) {
         super.onRequestPermissionsResult(code, permissions, results)
-        onResume()
+        pushState()
+    }
+
+    @Suppress("OVERRIDE_DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri = data?.data ?: return
+        if (resultCode != RESULT_OK) return
+        when (requestCode) {
+            IMPORT -> importVocab(uri)
+            EXPORT -> exportVocab(uri)
+        }
+    }
+
+    private fun importVocab(uri: Uri) {
+        try {
+            val text = contentResolver.openInputStream(uri)!!.use { it.readBytes().toString(Charsets.UTF_8) }
+            val vocab = Vocab.fromToml(text)
+            Prefs.saveVocab(this, vocab)
+            pushState()
+            toast("Importé : ${vocab.cleanTerms.size} terme(s), ${vocab.replacements.size} remplacement(s).")
+        } catch (e: Exception) {
+            toast("Fichier illisible : ${e.message}")
+        }
+    }
+
+    private fun exportVocab(uri: Uri) {
+        try {
+            contentResolver.openOutputStream(uri, "wt")!!.use {
+                it.write(Prefs.loadVocab(this).toToml().toByteArray(Charsets.UTF_8))
+            }
+            toast("Vocabulaire exporté.")
+        } catch (e: Exception) {
+            toast("Export impossible : ${e.message}")
+        }
+    }
+
+    private fun pushState() {
+        if (!::web.isInitialized) return
+        val json = JSONObject.quote(state().toString())
+        web.evaluateJavascript("window.onState && onState(JSON.parse($json))", null)
+    }
+
+    private fun toast(message: String) {
+        val json = JSONObject.quote(message)
+        web.evaluateJavascript("window.toast && toast($json)", null)
+    }
+
+    /** État affiché par la page. La clé API n'est jamais renvoyée en clair. */
+    private fun state(): JSONObject {
+        val prefs = Prefs.load(this)
+        val mic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        fun keyHint(key: String) = when {
+            key.isBlank() -> ""
+            key.length <= 8 -> "••••••"
+            else -> "••••••" + key.trim().takeLast(4)
+        }
+        val models = JSONObject()
+        for (provider in listOf(Prefs.OPENAI, Prefs.MISTRAL)) {
+            for (engine in listOf(Prefs.STANDARD, Prefs.REALTIME)) {
+                models.put("$provider/$engine", JSONArray(Prefs.models(provider, engine)))
+            }
+        }
+        return JSONObject()
+            .put("version", packageManager.getPackageInfo(packageName, 0).versionName)
+            .put("mic", mic)
+            .put("bubble", accessibilityEnabled())
+            .put("provider", prefs.provider)
+            .put("engine", prefs.engine)
+            .put("keyHint", JSONObject().put(Prefs.OPENAI, keyHint(prefs.openAiKey)).put(Prefs.MISTRAL, keyHint(prefs.mistralKey)))
+            .put("models", models)
+            .put(
+                "selected",
+                JSONObject()
+                    .put("${Prefs.OPENAI}/${Prefs.STANDARD}", prefs.openAiModel)
+                    .put("${Prefs.OPENAI}/${Prefs.REALTIME}", prefs.openAiRealtimeModel)
+                    .put("${Prefs.MISTRAL}/${Prefs.STANDARD}", prefs.mistralModel)
+                    .put("${Prefs.MISTRAL}/${Prefs.REALTIME}", prefs.mistralRealtimeModel),
+            )
+            .put("language", prefs.language)
+            .put("languages", JSONArray(Prefs.LANGUAGES.map { JSONArray(listOf(it.first, it.second)) }))
+            .put("shortWords", prefs.shortTextWords)
+            .put("shortChoices", JSONArray(Prefs.SHORT_TEXT_WORDS))
+            .put("vocab", Prefs.loadVocab(this).toJson())
     }
 
     private fun accessibilityEnabled(): Boolean {
@@ -172,94 +161,74 @@ class MainActivity : Activity() {
         return enabled.split(':').any { ComponentName.unflattenFromString(it) == me }
     }
 
-    /** Remplit la clé et la liste des modèles du fournisseur choisi. */
-    private fun showProvider() {
-        filling = true
-        keyField.setText(if (prefs.provider == Prefs.MISTRAL) prefs.mistralKey else prefs.openAiKey)
-        val models = Prefs.suggestedModels(prefs.provider)
-        val current = prefs.model
-        val custom = current !in models
-        val labels = models + OTHER
-        modelSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
-        modelSpinner.setSelection(if (custom) labels.lastIndex else models.indexOf(current))
-        customModel.setText(if (custom) current else "")
-        customModel.visibility = if (custom) View.VISIBLE else View.GONE
-        modelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, i: Int, id: Long) {
-                if (filling) return
-                if (i < models.size) {
-                    customModel.visibility = View.GONE
-                    setModel(models[i])
-                } else {
-                    customModel.visibility = View.VISIBLE
-                    customModel.requestFocus()
+    private fun change(kind: String, value: String) {
+        var p = Prefs.load(this)
+        p = when (kind) {
+            "provider" -> p.copy(provider = if (value == Prefs.MISTRAL) Prefs.MISTRAL else Prefs.OPENAI)
+            "engine" -> p.copy(engine = if (value == Prefs.REALTIME) Prefs.REALTIME else Prefs.STANDARD)
+            "key" -> if (p.isMistral) p.copy(mistralKey = value) else p.copy(openAiKey = value)
+            "model" -> when {
+                value.isBlank() -> p
+                p.isMistral && p.realtime -> p.copy(mistralRealtimeModel = value)
+                p.isMistral -> p.copy(mistralModel = value)
+                p.realtime -> p.copy(openAiRealtimeModel = value)
+                else -> p.copy(openAiModel = value)
+            }
+            "language" -> p.copy(language = value)
+            "short_words" -> p.copy(shortTextWords = value.toIntOrNull()?.coerceIn(0, 20) ?: p.shortTextWords)
+            else -> return
+        }
+        p.save(this)
+    }
+
+    private fun action(name: String) {
+        when (name) {
+            "mic" -> {
+                val wanted = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    wanted += Manifest.permission.POST_NOTIFICATIONS
                 }
+                requestPermissions(wanted.toTypedArray(), 1)
             }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            "accessibility" -> startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            "app_settings" -> startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
+            )
+            "import" -> startActivityForResult(
+                Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),
+                IMPORT,
+            )
+            "export" -> startActivityForResult(
+                Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("application/octet-stream")
+                    .putExtra(Intent.EXTRA_TITLE, "vocab.toml"),
+                EXPORT,
+            )
         }
-        // Le Spinner signale sa sélection initiale après coup : on attend.
-        modelSpinner.post { filling = false }
     }
 
-    private fun setModel(name: String) {
-        prefs = if (prefs.provider == Prefs.MISTRAL) {
-            prefs.copy(mistralModel = name)
-        } else {
-            prefs.copy(openAiModel = name)
-        }
-        prefs.save(this)
-    }
+    /** Appels de la page (thread du WebView → thread principal). */
+    private inner class Bridge {
+        @JavascriptInterface
+        fun ready() = runOnUiThread { pushState() }
 
-    private fun spinner(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) =
-        Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, labels)
-            setSelection(selected.coerceAtLeast(0))
-            onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(parent: AdapterView<*>?, view: View?, i: Int, id: Long) {
-                    onSelect(i)
-                    prefs.save(this@MainActivity)
-                }
-
-                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-            }
+        @JavascriptInterface
+        fun change(kind: String, value: String) = runOnUiThread {
+            this@MainActivity.change(kind, value)
+            pushState()
         }
 
-    /** Enregistre à chaque frappe (hors remplissage par programme). */
-    private fun EditText.onChange(apply: (String) -> Unit) {
-        addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-            override fun afterTextChanged(s: Editable?) {
-                if (filling) return
-                apply(s.toString().trim())
-                prefs.save(this@MainActivity)
-            }
-        })
-    }
+        @JavascriptInterface
+        fun vocab(json: String) = runOnUiThread {
+            runCatching { Prefs.saveVocab(this@MainActivity, Vocab.fromJson(JSONObject(json))) }
+        }
 
-    private fun title(text: String) = TextView(this).apply {
-        this.text = text
-        textSize = 20f
-        setPadding(0, dp(16), 0, dp(8))
+        @JavascriptInterface
+        fun action(name: String) = runOnUiThread { this@MainActivity.action(name) }
     }
-
-    private fun label(text: String) = TextView(this).apply {
-        this.text = text
-        setPadding(0, dp(12), 0, 0)
-    }
-
-    private fun hint(text: String) = TextView(this).apply {
-        this.text = text
-        textSize = 13f
-        alpha = 0.7f
-        setPadding(0, dp(4), 0, dp(4))
-    }
-
-    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     private companion object {
-        val SHORT_TEXT_WORDS = listOf(0, 1, 2, 3, 4, 5, 6)
-        const val OTHER = "Autre…"
+        const val IMPORT = 1
+        const val EXPORT = 2
     }
 }

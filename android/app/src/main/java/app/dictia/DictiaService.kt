@@ -42,12 +42,18 @@ class DictiaService : AccessibilityService() {
     private lateinit var params: WindowManager.LayoutParams
     private var state = State.IDLE
 
+    /** Session temps réel de la dictée en cours et fréquence de capture. */
+    private var session: RealtimeSession? = null
+    private var rate = Audio.RATE
+
     /** Dernier champ de saisie qui a eu le focus (secours si le focus est perdu). */
     private var lastEditable: AccessibilityNodeInfo? = null
 
     override fun onServiceConnected() {
         windowManager = getSystemService(WindowManager::class.java)
         Dictation.onError = { message ->
+            session?.cancel()
+            session = null
             setState(State.IDLE)
             stopService(Intent(this, MicService::class.java))
             toast(message)
@@ -71,6 +77,7 @@ class DictiaService : AccessibilityService() {
     override fun onDestroy() {
         Dictation.onError = null
         Dictation.end()
+        session?.cancel()
         main.removeCallbacks(refreshVisibility)
         bubble?.let { runCatching { windowManager.removeView(it) } }
         bubble = null
@@ -196,7 +203,16 @@ class DictiaService : AccessibilityService() {
             openSettings()
             return
         }
-        Dictation.begin()
+        val vocab = Prefs.loadVocab(this)
+        // Temps réel : la connexion s'ouvre pendant que l'utilisateur parle.
+        val live = if (prefs.realtime) {
+            runCatching { RealtimeSession(prefs, vocab).also { it.start() } }.getOrNull()
+        } else {
+            null
+        }
+        session = live
+        rate = live?.rate ?: Audio.RATE
+        Dictation.begin(rate, live?.let { it::append })
         setState(State.RECORDING)
         try {
             startForegroundService(Intent(this, MicService::class.java))
@@ -204,7 +220,7 @@ class DictiaService : AccessibilityService() {
             // Service de premier plan refusé : enregistrement direct.
             Dictation.startRecorder()
         }
-        worker.execute { Transcriber(prefs).warmUp() }
+        if (live == null) worker.execute { Transcriber(prefs, vocab).warmUp() }
     }
 
     private fun finishDictation() {
@@ -212,22 +228,39 @@ class DictiaService : AccessibilityService() {
         val pcm = Dictation.end()
         stopService(Intent(this, MicService::class.java))
         val prefs = Prefs.load(this)
+        val vocab = Prefs.loadVocab(this)
+        val live = session
+        val rate = rate
+        session = null
         worker.execute {
             val result = runCatching {
-                Audio.trimSilence(pcm)?.let { Transcriber(prefs).transcribe(Audio.wav(it)) }
+                val text = live?.let { finishLive(it) } ?: Audio.trimSilence(pcm, rate)?.let {
+                    Transcriber(prefs, vocab).transcribe(Audio.wav(it, rate))
+                }
+                text?.trim()?.takeUnless { it.isEmpty() || vocab.isPromptEcho(it) }
             }
             main.post {
                 setState(State.IDLE)
-                result.onSuccess { raw ->
-                    val text = raw?.trim().orEmpty()
-                    if (text.isEmpty()) {
+                result.onSuccess { text ->
+                    if (text == null) {
                         toast("Aucune parole détectée.")
                     } else {
-                        insert(TextTools.stripShortPunctuation(text, prefs.shortTextWords))
+                        val short = TextTools.stripShortPunctuation(text, prefs.shortTextWords)
+                        insert(vocab.apply(short))
                     }
                 }.onFailure { toast("Erreur : ${it.message}") }
             }
         }
+    }
+
+    /** Texte du mode temps réel, ou null pour repasser en mode standard. */
+    private fun finishLive(live: RealtimeSession): String? = try {
+        live.finish()
+    } catch (e: Exception) {
+        live.cancel()
+        val cause = (e as? java.util.concurrent.ExecutionException)?.cause ?: e
+        main.post { toast("Temps réel indisponible (${cause.message}) : envoi classique.") }
+        null
     }
 
     // --- Frappe du texte ---------------------------------------------------

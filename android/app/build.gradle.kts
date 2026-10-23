@@ -11,8 +11,8 @@ android {
         applicationId = "app.dictia"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     // Clé de signature de débogage commune (mot de passe public « android ») :
@@ -33,5 +33,7 @@ android {
 }
 
 dependencies {
+    // WebSocket du mode temps réel.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     testImplementation("junit:junit:4.13.2")
 }

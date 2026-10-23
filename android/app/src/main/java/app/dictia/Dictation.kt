@@ -8,6 +8,8 @@ object Dictation {
     @Volatile
     private var recorder: Recorder? = null
     private var active = false
+    private var rate = Audio.RATE
+    private var onChunk: ((ByteArray) -> Unit)? = null
 
     /** Appelé (thread principal) si le micro ne démarre pas. */
     var onError: ((String) -> Unit)? = null
@@ -15,9 +17,12 @@ object Dictation {
     /** Volume actuel du micro (0 à 1). */
     val level: Float get() = recorder?.level ?: 0f
 
+    /** Prépare une dictée à `rate` Hz ; `onChunk` reçoit l'audio au fil de l'eau. */
     @Synchronized
-    fun begin() {
+    fun begin(rate: Int, onChunk: ((ByteArray) -> Unit)?) {
         active = true
+        this.rate = rate
+        this.onChunk = onChunk
     }
 
     /** Démarre la capture si la dictée est toujours en cours. */
@@ -25,7 +30,7 @@ object Dictation {
     fun startRecorder() {
         if (!active || recorder != null) return
         try {
-            recorder = Recorder().also { it.start() }
+            recorder = Recorder(rate, onChunk).also { it.start() }
         } catch (e: Exception) {
             active = false
             onError?.invoke("Micro : ${e.message}")
@@ -36,6 +41,7 @@ object Dictation {
     @Synchronized
     fun end(): ByteArray {
         active = false
+        onChunk = null
         val pcm = recorder?.stop() ?: ByteArray(0)
         recorder = null
         return pcm

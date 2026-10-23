@@ -6,7 +6,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /** Transcription par `POST {base}/audio/transcriptions` (OpenAI ou Mistral). */
-class Transcriber(private val prefs: Prefs) {
+class Transcriber(private val prefs: Prefs, private val vocab: Vocab) {
 
     /**
      * Ouvre la connexion TLS pendant que l'utilisateur parle : la requête
@@ -27,12 +27,20 @@ class Transcriber(private val prefs: Prefs) {
         val boundary = "dictia${System.nanoTime()}"
         val body = ByteArrayOutputStream()
         fun field(name: String, value: String) {
-            body.write("--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n".toByteArray())
+            body.write(
+                "--$boundary\r\nContent-Disposition: form-data; name=\"$name\"\r\n\r\n$value\r\n"
+                    .toByteArray(Charsets.UTF_8),
+            )
         }
         field("model", prefs.model)
-        if (prefs.provider == Prefs.OPENAI) field("response_format", "json")
-        val language = prefs.language.trim()
-        if (language.isNotEmpty() && language != "auto") field("language", language)
+        if (!prefs.isMistral) field("response_format", "json")
+        if (prefs.apiLanguage.isNotEmpty()) field("language", prefs.apiLanguage)
+        if (prefs.isMistral) {
+            // Voxtral : une entrée `context_bias` par terme à reconnaître.
+            vocab.cleanTerms.forEach { field("context_bias", it) }
+        } else if (vocab.prompt.isNotEmpty()) {
+            field("prompt", vocab.prompt)
+        }
         body.write(
             ("--$boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n" +
                 "Content-Type: audio/wav\r\n\r\n").toByteArray(),

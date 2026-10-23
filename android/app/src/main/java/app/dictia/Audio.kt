@@ -8,8 +8,11 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/** Capture micro en mono 16 kHz, PCM 16 bits. */
-class Recorder {
+/**
+ * Capture micro en mono PCM 16 bits à `rate` Hz. `onChunk` reçoit chaque bloc
+ * de 50 ms au fil de l'eau (mode temps réel), depuis le thread de capture.
+ */
+class Recorder(private val rate: Int, private val onChunk: ((ByteArray) -> Unit)? = null) {
     private var record: AudioRecord? = null
     private var thread: Thread? = null
     private val pcm = ByteArrayOutputStream()
@@ -25,14 +28,14 @@ class Recorder {
     @SuppressLint("MissingPermission") // vérifiée avant le démarrage de la dictée
     fun start() {
         val min = AudioRecord.getMinBufferSize(
-            Audio.RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+            rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
         )
         val r = AudioRecord(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            Audio.RATE,
+            rate,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
-            maxOf(min, Audio.RATE), // 0,5 s de tampon
+            maxOf(min, rate), // 0,5 s de tampon
         )
         if (r.state != AudioRecord.STATE_INITIALIZED) {
             r.release()
@@ -42,12 +45,13 @@ class Recorder {
         record = r
         running = true
         thread = Thread({
-            val chunk = ByteArray(1600) // 50 ms
+            val chunk = ByteArray(rate / 10) // 50 ms
             while (running) {
                 val n = r.read(chunk, 0, chunk.size)
                 if (n > 0) {
                     synchronized(pcm) { pcm.write(chunk, 0, n) }
                     level = Audio.level(chunk, n)
+                    onChunk?.invoke(chunk.copyOf(n))
                 }
             }
         }, "dictia-micro").apply { start() }
@@ -67,8 +71,11 @@ class Recorder {
 }
 
 object Audio {
+    /** Fréquence par défaut (envoi en fin de dictée, Voxtral Realtime). */
     const val RATE = 16_000
-    private const val FRAME = RATE / 50 // 20 ms
+
+    /** Fréquence imposée par l'API Realtime d'OpenAI. */
+    const val OPENAI_REALTIME_RATE = 24_000
     private const val THRESHOLD = 500.0 // RMS, environ -36 dBFS
     private const val MARGIN_FRAMES = 15 // 300 ms gardés autour de la parole
 
@@ -93,34 +100,35 @@ object Audio {
      * Supprime les silences de début et de fin (envoi plus court, réponse plus
      * rapide). Renvoie null si aucune parole n'est détectée.
      */
-    fun trimSilence(pcm: ByteArray): ByteArray? {
+    fun trimSilence(pcm: ByteArray, rate: Int): ByteArray? {
+        val frameSize = rate / 50 // 20 ms
         val samples = ByteBuffer.wrap(pcm).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
-        val frames = samples.remaining() / FRAME
+        val frames = samples.remaining() / frameSize
         var first = -1
         var last = -1
         for (f in 0 until frames) {
             var sum = 0.0
-            for (i in f * FRAME until (f + 1) * FRAME) {
+            for (i in f * frameSize until (f + 1) * frameSize) {
                 val s = samples.get(i).toDouble()
                 sum += s * s
             }
-            if (Math.sqrt(sum / FRAME) >= THRESHOLD) {
+            if (Math.sqrt(sum / frameSize) >= THRESHOLD) {
                 if (first < 0) first = f
                 last = f
             }
         }
         if (first < 0) return null
-        val from = maxOf(0, first - MARGIN_FRAMES) * FRAME * 2
-        val to = minOf(frames, last + 1 + MARGIN_FRAMES) * FRAME * 2
+        val from = maxOf(0, first - MARGIN_FRAMES) * frameSize * 2
+        val to = minOf(frames, last + 1 + MARGIN_FRAMES) * frameSize * 2
         return pcm.copyOfRange(from, to)
     }
 
-    /** Fichier WAV en mémoire à partir de PCM 16 bits mono 16 kHz. */
-    fun wav(pcm: ByteArray): ByteArray {
+    /** Fichier WAV en mémoire à partir de PCM 16 bits mono. */
+    fun wav(pcm: ByteArray, rate: Int): ByteArray {
         val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN).apply {
             put("RIFF".toByteArray()); putInt(36 + pcm.size); put("WAVE".toByteArray())
             put("fmt ".toByteArray()); putInt(16); putShort(1); putShort(1)
-            putInt(RATE); putInt(RATE * 2); putShort(2); putShort(16)
+            putInt(rate); putInt(rate * 2); putShort(2); putShort(16)
             put("data".toByteArray()); putInt(pcm.size)
         }
         return header.array() + pcm

@@ -266,8 +266,10 @@ de nouveau : le texte est écrit dans le champ où se trouve le curseur.
 - **Mise en route** : ouvrez Dictia, autorisez le micro, puis activez Dictia
   dans *Accessibilité*. Si l'interrupteur est grisé, allez dans *Applications
   › Dictia › ⋮ › Autoriser les paramètres restreints*.
-- **Réglages** : renseignez le fournisseur (OpenAI ou Mistral), la clé API,
-  le modèle, la langue et la limite des textes courts. Les réglages sont
-  gardés dans les préférences privées de l'application.
+- **Réglages** : fournisseur (OpenAI ou Mistral), clé API, mode (standard
+  ou temps réel, avec repli automatique), modèle, langue et limite des textes
+  courts. L'onglet *Vocabulaire* gère le contexte, les termes et les
+  remplacements ; *Importer* / *Exporter* échangent le fichier `vocab.toml`
+  avec la version Windows.
 - **Compilation** : `cd android && ./gradlew assembleDebug`. Il faut le JDK 17
   et le SDK Android.
