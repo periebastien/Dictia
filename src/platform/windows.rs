@@ -11,9 +11,10 @@ use windows::Win32::Foundation::{
     LRESULT, POINT, SIZE, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    ClientToScreen, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
-    SelectObject, AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
-    DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ,
+    ClientToScreen, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC,
+    GetMonitorInfoW, MonitorFromPoint, ReleaseDC, SelectObject, AC_SRC_ALPHA, AC_SRC_OVER,
+    BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ,
+    MONITORINFO, MONITOR_DEFAULTTONEAREST, MONITOR_DEFAULTTONULL,
 };
 use windows::Win32::System::Diagnostics::Debug::MessageBeep;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -27,10 +28,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
     GetCursorPos, GetForegroundWindow, GetGUIThreadInfo, GetMessageW, GetWindowThreadProcessId,
     IsIconic, IsWindow, KillTimer, MessageBoxW, PostThreadMessageW, RegisterClassW,
-    SetForegroundWindow, SetTimer, ShowWindow, TranslateMessage, UpdateLayeredWindow,
-    GUITHREADINFO, MB_ICONERROR, MB_ICONWARNING, MB_OK, MSG, SW_HIDE, SW_RESTORE,
-    SW_SHOWNOACTIVATE, ULW_ALPHA, WM_APP, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+    SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow,
+    GUITHREADINFO, HWND_TOPMOST, MB_ICONERROR, MB_ICONWARNING, MB_OK, MSG, SWP_NOACTIVATE,
+    SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, ULW_ALPHA,
+    WM_APP, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_EX_TRANSPARENT, WS_POPUP,
 };
 
 use crate::inject::Keystroke;
@@ -265,15 +267,20 @@ pub fn text_cursor_or_pointer() -> (i32, i32) {
                 cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
                 ..Default::default()
             };
+            // Point d'insertion ignoré s'il est vide ou hors de tout écran
+            // (certaines applications en déclarent un fictif).
             if thread != 0
                 && GetGUIThreadInfo(thread, &mut info).is_ok()
                 && !info.hwndCaret.is_invalid()
+                && info.rcCaret.bottom > info.rcCaret.top
             {
                 let mut pt = POINT {
                     x: info.rcCaret.left,
                     y: info.rcCaret.bottom,
                 };
-                if ClientToScreen(info.hwndCaret, &mut pt).as_bool() {
+                if ClientToScreen(info.hwndCaret, &mut pt).as_bool()
+                    && !MonitorFromPoint(pt, MONITOR_DEFAULTTONULL).is_invalid()
+                {
                     return (pt.x, pt.y);
                 }
             }
@@ -281,6 +288,22 @@ pub fn text_cursor_or_pointer() -> (i32, i32) {
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);
         (pt.x, pt.y)
+    }
+}
+
+/// Zone de travail (écran sans la barre des tâches) de l'écran le plus
+/// proche du point donné.
+pub fn work_area_at(x: i32, y: i32) -> Option<(i32, i32, i32, i32)> {
+    unsafe {
+        let monitor = MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        GetMonitorInfoW(monitor, &mut info).as_bool().then(|| {
+            let r = info.rcWork;
+            (r.left, r.top, r.right, r.bottom)
+        })
     }
 }
 
@@ -305,9 +328,14 @@ pub struct OverlayWindow {
     height: u32,
     visible: bool,
     animating: bool,
+    /// Dernière remise au premier plan.
+    raised: Option<Instant>,
 }
 
 const OVERLAY_TIMER: usize = 1;
+/// D'autres fenêtres « toujours visibles » (barre des tâches, menu Démarrer,
+/// visioconférence…) peuvent passer devant : on repasse au-dessus à ce rythme.
+const RAISE_EVERY: Duration = Duration::from_millis(500);
 
 impl OverlayWindow {
     pub fn new(width: u32, height: u32) -> Result<Self> {
@@ -368,15 +396,21 @@ impl OverlayWindow {
                 height,
                 visible: false,
                 animating: false,
+                raised: None,
             })
         }
     }
 
+    pub fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
+    }
+
     /// Affiche `bgra` (BGRA prémultiplié, `width`×`height`) en (`x`, `y`).
-    pub fn show(&mut self, x: i32, y: i32, bgra: &[u8]) {
+    /// Renvoie `false` si Windows refuse l'affichage.
+    pub fn show(&mut self, x: i32, y: i32, bgra: &[u8]) -> bool {
         let len = (self.width * self.height * 4) as usize;
         if bgra.len() != len {
-            return;
+            return false;
         }
         unsafe {
             std::ptr::copy_nonoverlapping(bgra.as_ptr(), self.bits, len);
@@ -392,7 +426,7 @@ impl OverlayWindow {
                 SourceConstantAlpha: 255,
                 AlphaFormat: AC_SRC_ALPHA as u8,
             };
-            let _ = UpdateLayeredWindow(
+            if let Err(e) = UpdateLayeredWindow(
                 self.hwnd,
                 None,
                 Some(&dst),
@@ -402,12 +436,29 @@ impl OverlayWindow {
                 COLORREF(0),
                 Some(&blend),
                 ULW_ALPHA,
-            );
+            ) {
+                log::warn!("affichage de l'indicateur impossible : {e}");
+                return false;
+            }
             if !self.visible {
                 let _ = ShowWindow(self.hwnd, SW_SHOWNOACTIVATE);
                 self.visible = true;
+                self.raised = None;
+            }
+            if self.raised.is_none_or(|t| t.elapsed() >= RAISE_EVERY) {
+                let _ = SetWindowPos(
+                    self.hwnd,
+                    Some(HWND_TOPMOST),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+                );
+                self.raised = Some(Instant::now());
             }
         }
+        true
     }
 
     pub fn hide(&mut self) {

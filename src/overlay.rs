@@ -105,6 +105,31 @@ pub fn render(animation: Animation, t: f32, level: f32, scale: f32) -> Vec<u8> {
     canvas.into_bgra()
 }
 
+/// Rectangle d'écran (gauche, haut, droite, bas) en pixels physiques.
+pub type ScreenRect = (i32, i32, i32, i32);
+
+/// Position de l'indicateur près de `anchor` (curseur), décalée de `offset`,
+/// en restant entièrement dans `area` (zone de travail de l'écran) : à gauche
+/// du curseur près du bord droit, au-dessus près du bas de l'écran.
+pub fn place(
+    anchor: (i32, i32),
+    size: (u32, u32),
+    offset: (i32, i32),
+    area: ScreenRect,
+) -> (i32, i32) {
+    let (w, h) = (size.0 as i32, size.1 as i32);
+    let (left, top, right, bottom) = area;
+    let mut x = anchor.0 + offset.0;
+    if x + w > right {
+        x = anchor.0 - offset.0 - w;
+    }
+    let mut y = anchor.1 + offset.1;
+    if y + h > bottom {
+        y = anchor.1 - offset.1 - h;
+    }
+    (x.min(right - w).max(left), y.min(bottom - h).max(top))
+}
+
 fn dist(x: f32, y: f32, cx: f32, cy: f32) -> f32 {
     ((x - cx).powi(2) + (y - cy).powi(2)).sqrt()
 }
@@ -183,6 +208,24 @@ mod tests {
     fn pixel(img: &[u8], x: u32, y: u32) -> [u8; 4] {
         let i = ((y * WIDTH + x) * 4) as usize;
         img[i..i + 4].try_into().unwrap()
+    }
+
+    #[test]
+    fn stays_inside_the_screen() {
+        let area = (0, 0, 1920, 1040);
+        // Cas normal : en bas à droite du curseur.
+        assert_eq!(place((500, 300), (60, 26), (14, 18), area), (514, 318));
+        // Près du bord droit : à gauche du curseur.
+        assert_eq!(place((1900, 300), (60, 26), (14, 18), area), (1826, 318));
+        // Près du bas (barre des tâches) : au-dessus du curseur.
+        assert_eq!(place((500, 1030), (60, 26), (14, 18), area), (514, 986));
+        // Position aberrante : ramenée dans l'écran.
+        assert_eq!(place((-5000, -5000), (60, 26), (14, 18), area), (0, 0));
+        // Second écran à gauche (coordonnées négatives), près de son bord droit.
+        assert_eq!(
+            place((-30, 50), (60, 26), (14, 18), (-1920, 0, 0, 1080)),
+            (-104, 68)
+        );
     }
 
     #[test]

@@ -469,7 +469,10 @@ impl MainLoop {
 
 /// Animation affichée à côté du curseur (thread principal uniquement).
 struct Indicator {
+    enabled: bool,
     window: Option<OverlayWindow>,
+    /// Dernière tentative de création de la fenêtre.
+    created: Option<Instant>,
     scale: f32,
     shown: Option<Animation>,
     since: Instant,
@@ -479,7 +482,9 @@ struct Indicator {
 impl Indicator {
     fn new(enabled: bool) -> Self {
         let mut indicator = Self {
+            enabled: false,
             window: None,
+            created: None,
             scale: platform::system_scale(),
             shown: None,
             since: Instant::now(),
@@ -490,20 +495,37 @@ impl Indicator {
     }
 
     fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
         if !enabled {
             self.window = None;
             self.shown = None;
             return;
         }
-        if self.window.is_none() {
-            let (w, h) = overlay::size(self.scale);
-            self.window = OverlayWindow::new(w, h)
-                .map_err(|e| log::warn!("indicateur indisponible : {e}"))
-                .ok();
+        self.ensure_window();
+    }
+
+    /// Crée la fenêtre si besoin ; après un échec, nouvel essai au plus une
+    /// fois par seconde.
+    fn ensure_window(&mut self) {
+        if !self.enabled
+            || self.window.is_some()
+            || self
+                .created
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(1))
+        {
+            return;
         }
+        self.created = Some(Instant::now());
+        let (w, h) = overlay::size(self.scale);
+        self.window = OverlayWindow::new(w, h)
+            .map_err(|e| log::warn!("indicateur indisponible : {e}"))
+            .ok();
     }
 
     fn update(&mut self, animation: Option<Animation>, mic_rms: f32) {
+        if animation.is_some() {
+            self.ensure_window();
+        }
         let Some(window) = &mut self.window else {
             return;
         };
@@ -533,13 +555,19 @@ impl Indicator {
             self.level,
             self.scale,
         );
-        let (x, y) = platform::text_cursor_or_pointer();
+        let anchor = platform::text_cursor_or_pointer();
         let offset = |v: i32| (v as f32 * self.scale).round() as i32;
-        window.show(
-            x + offset(overlay::OFFSET.0),
-            y + offset(overlay::OFFSET.1),
-            &image,
-        );
+        let offset = (offset(overlay::OFFSET.0), offset(overlay::OFFSET.1));
+        let (x, y) = match platform::work_area_at(anchor.0, anchor.1) {
+            Some(area) => overlay::place(anchor, window.size(), offset, area),
+            None => (anchor.0 + offset.0, anchor.1 + offset.1),
+        };
+        if !window.show(x, y, &image) {
+            // Fenêtre devenue inutilisable (veille, changement d'écran…) :
+            // recréée à la prochaine image.
+            self.window = None;
+            self.shown = None;
+        }
     }
 }
 
