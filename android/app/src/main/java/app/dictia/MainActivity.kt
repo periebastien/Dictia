@@ -151,6 +151,7 @@ class MainActivity : Activity() {
             .put("shortWords", prefs.shortTextWords)
             .put("shortChoices", JSONArray(Prefs.SHORT_TEXT_WORDS))
             .put("vocab", Prefs.loadVocab(this).toJson())
+            .put("problem", Prefs.problem(this) ?: JSONObject.NULL)
     }
 
     private fun accessibilityEnabled(): Boolean {
@@ -198,6 +199,30 @@ class MainActivity : Activity() {
                 Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"),
                 IMPORT,
             )
+            "dismiss_problem" -> {
+                Prefs.setProblem(this, null)
+                pushState()
+            }
+            "test_realtime" -> {
+                val prefs = Prefs.load(this)
+                if (prefs.apiKey.isBlank()) {
+                    toast("Ajoutez d'abord votre clé API.")
+                    return
+                }
+                toast("Test du temps réel en cours…")
+                Thread {
+                    val error = RealtimeSession.test(prefs.copy(engine = Prefs.REALTIME), Prefs.loadVocab(this))
+                    runOnUiThread {
+                        if (error == null) {
+                            toast("Temps réel OK : ${prefs.realtimeModel} répond.")
+                        } else {
+                            Prefs.setProblem(this, "Test temps réel (${prefs.realtimeModel}) : $error")
+                            pushState()
+                            toast("Échec du test : détail en haut de l'écran.")
+                        }
+                    }
+                }.start()
+            }
             "export" -> startActivityForResult(
                 Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
                     .setType("application/octet-stream")

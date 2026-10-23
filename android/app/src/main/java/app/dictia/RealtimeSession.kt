@@ -222,8 +222,26 @@ class RealtimeSession(private val prefs: Prefs, private val vocab: Vocab) : WebS
         else -> error.toString()
     }.take(200)
 
-    private companion object {
-        val client: OkHttpClient = OkHttpClient.Builder()
+    companion object {
+        /**
+         * Ouvre une session, envoie une seconde de silence et attend la fin :
+         * renvoie null si tout s'est bien passé, sinon la cause exacte.
+         */
+        fun test(prefs: Prefs, vocab: Vocab): String? {
+            val session = RealtimeSession(prefs, vocab)
+            return try {
+                session.start()
+                repeat(10) { session.append(ByteArray(session.rate / 5)) } // 10 × 100 ms
+                session.finish(timeoutSeconds = 15)
+                null
+            } catch (e: Exception) {
+                session.cancel()
+                val cause = (e as? java.util.concurrent.ExecutionException)?.cause ?: e
+                cause.message ?: cause.javaClass.simpleName
+            }
+        }
+
+        private val client: OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .pingInterval(15, TimeUnit.SECONDS)
             .build()

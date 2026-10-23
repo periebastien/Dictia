@@ -56,6 +56,9 @@ nav button{flex:1;height:60px;border:0;background:transparent;color:var(--muted)
 nav button.on{color:var(--accent)}
 #toast{position:fixed;left:16px;right:16px;bottom:76px;padding:12px 14px;border-radius:12px;background:#33333C;color:var(--text);font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.4);opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s;pointer-events:none}
 #toast.on{opacity:1;transform:none}
+.problem{display:flex;gap:10px;align-items:flex-start;padding:12px 12px 12px 14px;border-radius:12px;background:rgba(127,29,29,0.35);border:1px solid rgba(248,113,113,0.35);color:#FECACA;font-size:13.5px;line-height:1.45;word-break:break-word;user-select:text;-webkit-user-select:text}
+.problem div{flex-grow:1}
+.problem button{border:0;background:none;color:#FECACA;font-size:20px;line-height:1;padding:0 2px}
 .version{text-align:center;font-size:12px;color:var(--muted);margin-top:8px}
 </style>
 </head>
@@ -68,6 +71,7 @@ nav button.on{color:var(--accent)}
 
 <main>
   <section class="view on" id="view-reglages">
+    <div class="problem" id="problem" style="display:none"><div id="problem-text"></div><button data-action="dismiss_problem" aria-label="Effacer">×</button></div>
     <div id="setup">
       <div class="section">Mise en route</div>
       <div class="card" style="margin-top:8px">
@@ -107,6 +111,7 @@ nav button.on{color:var(--accent)}
           <button data-value="standard">Standard</button>
           <button data-value="realtime">Temps réel</button>
         </div>
+        <button class="btn ghost" id="test-rt" data-action="test_realtime">Tester le temps réel</button>
       </div>
       <div class="row col">
         <div class="lbl"><div>Modèle</div></div>
@@ -226,6 +231,9 @@ window.onState = function (s) {
   $('pill-text').textContent = ready ? 'Prête' : 'À configurer';
   $('pill-dot').style.background = ready ? 'var(--ok)' : 'var(--accent)';
 
+  $('problem').style.display = s.problem ? '' : 'none';
+  $('problem-text').textContent = s.problem || '';
+
   // Transcription
   for (const b of $('provider').children) b.classList.toggle('on', b.dataset.value === s.provider);
   for (const b of $('engine').children) b.classList.toggle('on', b.dataset.value === s.engine);
@@ -236,6 +244,7 @@ window.onState = function (s) {
     ? 'L\'audio part pendant que vous parlez : le texte arrive presque aussitôt. Repli automatique sur Standard en cas d\'échec.'
     : 'L\'audio est envoyé à la fin de la dictée.';
 
+  $('test-rt').style.display = s.engine === 'realtime' ? '' : 'none';
   const key = s.provider + '/' + s.engine;
   const list = s.models[key];
   const current = s.selected[key];

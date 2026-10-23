@@ -234,7 +234,7 @@ class DictiaService : AccessibilityService() {
         session = null
         worker.execute {
             val result = runCatching {
-                val text = live?.let { finishLive(it) } ?: Audio.trimSilence(pcm, rate)?.let {
+                val text = live?.let { finishLive(it, prefs) } ?: Audio.trimSilence(pcm, rate)?.let {
                     Transcriber(prefs, vocab).transcribe(Audio.wav(it, rate))
                 }
                 text?.trim()?.takeUnless { it.isEmpty() || vocab.isPromptEcho(it) }
@@ -248,18 +248,22 @@ class DictiaService : AccessibilityService() {
                         val short = TextTools.stripShortPunctuation(text, prefs.shortTextWords)
                         insert(vocab.apply(short))
                     }
-                }.onFailure { toast("Erreur : ${it.message}") }
+                }.onFailure {
+                    Prefs.setProblem(this, "Transcription : ${it.message}")
+                    toast("Erreur : ${it.message}")
+                }
             }
         }
     }
 
     /** Texte du mode temps réel, ou null pour repasser en mode standard. */
-    private fun finishLive(live: RealtimeSession): String? = try {
+    private fun finishLive(live: RealtimeSession, prefs: Prefs): String? = try {
         live.finish()
     } catch (e: Exception) {
         live.cancel()
         val cause = (e as? java.util.concurrent.ExecutionException)?.cause ?: e
-        main.post { toast("Temps réel indisponible (${cause.message}) : envoi classique.") }
+        Prefs.setProblem(this, "Temps réel (${prefs.realtimeModel}) : ${cause.message}")
+        main.post { toast("Temps réel indisponible : envoi classique. Détail dans l'application.") }
         null
     }
 

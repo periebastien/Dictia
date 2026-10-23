@@ -103,6 +103,13 @@ data class Prefs(
             store(context).edit().putString("vocab", vocab.toJson().toString()).apply()
         }
 
+        /** Dernier problème rencontré, affiché dans l'écran de Dictia. */
+        fun problem(context: Context): String? = store(context).getString("problem", null)
+
+        fun setProblem(context: Context, message: String?) {
+            store(context).edit().putString("problem", message).apply()
+        }
+
         /** Position de la bulle à l'écran. */
         fun bubblePosition(context: Context): Pair<Int, Int> {
             val p = store(context)
