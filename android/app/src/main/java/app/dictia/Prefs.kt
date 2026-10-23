@@ -52,7 +52,7 @@ data class Prefs(
         /** Modèles proposés (comme sous Windows) ; « Autre… » permet d'en saisir un. */
         fun models(provider: String, engine: String): List<String> = when {
             provider == MISTRAL && engine == REALTIME ->
-                listOf("voxtral-mini-transcribe-realtime-2602", "voxtral-mini-transcribe-realtime-3")
+                listOf("voxtral-mini-transcribe-realtime-3")
             provider == MISTRAL -> listOf("voxtral-mini-latest", "voxtral-mini-transcribe-3")
             engine == REALTIME ->
                 listOf("gpt-live-transcribe", "gpt-realtime-whisper", "gpt-4o-transcribe", "gpt-4o-mini-transcribe")

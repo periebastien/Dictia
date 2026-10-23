@@ -370,9 +370,9 @@ mod tests {
         assert_eq!(view.providers[0].realtime_model, "gpt-live-transcribe");
         assert_eq!(
             view.providers[1].realtime_model,
-            "voxtral-mini-transcribe-realtime-2602"
+            "voxtral-mini-transcribe-realtime-3"
         );
-        assert_eq!(view.providers[1].realtime_models.len(), 2);
+        assert_eq!(view.providers[1].realtime_models.len(), 1);
         assert!(
             !SettingsView::new(&Config::default(), |_| None, false, &[]).providers[0].api_key_set
         );

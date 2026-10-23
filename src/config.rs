@@ -61,7 +61,7 @@ base_url = "https://api.mistral.ai/v1"
 # Modèle Voxtral du moteur standard (ex. voxtral-mini-latest).
 model = "voxtral-mini-latest"
 # Modèle Voxtral du moteur realtime (choisi avec engine = "realtime").
-realtime_model = "voxtral-mini-transcribe-realtime-2602"
+realtime_model = "voxtral-mini-transcribe-realtime-3"
 
 [local]
 # Serveur de transcription sur votre PC, compatible avec l'API OpenAI
@@ -420,7 +420,7 @@ impl Provider {
     pub fn default_realtime_model(self) -> &'static str {
         match self {
             Self::OpenAi => "gpt-live-transcribe",
-            Self::Mistral => "voxtral-mini-transcribe-realtime-2602",
+            Self::Mistral => "voxtral-mini-transcribe-realtime-3",
             Self::Local => "",
         }
     }
@@ -612,13 +612,13 @@ mod tests {
         assert!(cfg.uses_realtime());
         assert_eq!(
             cfg.realtime_model(Provider::Mistral),
-            "voxtral-mini-transcribe-realtime-2602"
+            "voxtral-mini-transcribe-realtime-3"
         );
         // Une section [mistral] ancienne, sans realtime_model.
         cfg.mistral.realtime_model.clear();
         assert_eq!(
             cfg.realtime_model(Provider::Mistral),
-            "voxtral-mini-transcribe-realtime-2602"
+            "voxtral-mini-transcribe-realtime-3"
         );
         cfg.api.provider = "local".into();
         assert!(!cfg.uses_realtime());

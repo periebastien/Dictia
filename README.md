@@ -198,7 +198,7 @@ Les Statistiques distinguent chaque fournisseur et chaque modèle.
     `gpt-live-transcribe`, vos termes du Vocabulaire sont transmis comme
     mots-clés ; avec `gpt-4o-transcribe`, comme prompt.
   - Mistral : `/v1/audio/transcriptions/realtime`, PCM 16 kHz, modèles
-    Voxtral Realtime (`voxtral-mini-transcribe-realtime-2602` par défaut,
+    Voxtral Realtime (`voxtral-mini-transcribe-realtime-3` par défaut,
     réglage `realtime_model` de `[mistral]`) ; vos termes partent en
     `context_bias`.
 

@@ -586,7 +586,8 @@ impl Controller {
                         "Realtime indisponible, dictée transcrite en Standard : {e:#}"
                     ));
                     lat.backend = "realtime>standard";
-                    lat.model = standard_model;
+                    // « modèle realtime>modèle standard » : on voit lequel a échoué.
+                    lat.model = format!("{}>{standard_model}", lat.model);
                     transcribe_file(
                         &*backend,
                         &vocab,

@@ -37,11 +37,9 @@ pub const MODELS: [&str; 4] = [
     "gpt-4o-mini-transcribe",
 ];
 
-/// Modèles Voxtral Realtime proposés.
-pub const MISTRAL_MODELS: [&str; 2] = [
-    "voxtral-mini-transcribe-realtime-2602",
-    "voxtral-mini-transcribe-realtime-3",
-];
+/// Modèles Voxtral Realtime proposés (`…-realtime-2602` n'est plus proposé :
+/// ses sessions échouent et chaque dictée repassait en Standard).
+pub const MISTRAL_MODELS: [&str; 1] = ["voxtral-mini-transcribe-realtime-3"];
 
 /// Modèles realtime d'un fournisseur.
 pub fn models(provider: Provider) -> &'static [&'static str] {
