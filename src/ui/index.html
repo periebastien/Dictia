@@ -225,6 +225,8 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
           <select id="tail" class="field"></select></div>
         <div class="set"><div class="lbl"><span>Espace après le texte</span><span>Pour enchaîner les dictées</span></div>
           <button class="toggle" id="t-space" aria-label="Espace après le texte" aria-pressed="false"><span></span></button></div>
+        <div class="set"><div class="lbl"><label for="short-words">Textes courts sans ponctuation</label><span>Retire points et virgules ajoutés par l'IA</span></div>
+          <select id="short-words" class="field"></select></div>
       </div>
       <div class="section">Général</div>
       <div class="list">
@@ -527,6 +529,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   });
   $('language').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'language', value: e.target.value } }));
   $('mic').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'microphone', value: e.target.value } }));
+  $('short-words').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'short_text_words', value: Number(e.target.value) } }));
   $('tail').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'release_tail', value: Number(e.target.value) } }));
   $('open-folder').addEventListener('click', () => send({ cmd: 'open_folder' }));
 
@@ -552,6 +555,8 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     setToggle('t-mic-open', s.keep_mic_open);
     $('tail').replaceChildren(...s.release_tails.map((ms) => el('option', { value: String(ms), text: ms ? ms + ' ms' : 'Non' })));
     $('tail').value = String(s.release_tail_ms);
+    $('short-words').replaceChildren(...s.short_text_choices.map((n) => el('option', { value: String(n), text: n ? "Jusqu'à " + n + (n > 1 ? ' mots' : ' mot') : 'Non' })));
+    $('short-words').value = String(s.short_text_words);
     const missing = p.needs_key && !p.api_key_set;
     $('key-notice').hidden = !missing;
     $('key-notice').textContent = 'Ajoutez votre clé API ' + p.name + ' ci-dessous pour commencer à dicter.';

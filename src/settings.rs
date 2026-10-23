@@ -43,6 +43,9 @@ fn parse_provider(id: &str) -> Result<Provider> {
 }
 /// Durées de prolongement proposées (ms).
 pub const RELEASE_TAILS: [u32; 5] = [0, 150, 300, 500, 800];
+
+/// Choix proposés pour les textes courts sans ponctuation (0 : jamais).
+pub const SHORT_TEXT_WORDS: [u32; 7] = [0, 1, 2, 3, 4, 5, 6];
 /// Langues proposées dans l'interface (`auto` : reconnue par le modèle).
 pub const LANGUAGES: [(&str, &str); 9] = [
     (LANGUAGE_AUTO, "Automatique"),
@@ -105,6 +108,9 @@ pub enum Change {
     },
     LiveTyping {
         value: bool,
+    },
+    ShortTextWords {
+        value: u32,
     },
     ReleaseTail {
         value: u32,
@@ -234,6 +240,12 @@ pub fn apply_config_change(text: &str, current: &Config, change: &Change) -> Res
             table(&mut doc, "inject")["trailing_space"] = value(*v)
         }
         Change::LiveTyping { value: v } => table(&mut doc, "inject")["live_typing"] = value(*v),
+        Change::ShortTextWords { value: v } => {
+            if *v > 20 {
+                bail!("texte court trop long : {v} mots (20 au plus)");
+            }
+            table(&mut doc, "inject")["short_text_words"] = value(i64::from(*v));
+        }
         Change::ReleaseTail { value: v } => {
             if *v > 2_000 {
                 bail!("prolongement trop long : {v} ms (2 000 ms au plus)");
@@ -507,6 +519,14 @@ mod tests {
         })
         .is_err());
         assert!(apply(Change::ReleaseTail { value: 5_000 }).is_err());
+        assert_eq!(
+            apply(Change::ShortTextWords { value: 5 })
+                .unwrap()
+                .inject
+                .short_text_words,
+            5
+        );
+        assert!(apply(Change::ShortTextWords { value: 50 }).is_err());
         assert!(apply(Change::Engine {
             value: "turbo".into()
         })

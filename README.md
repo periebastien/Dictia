@@ -105,6 +105,7 @@ keep_mic_open = false                 # micro gardé ouvert entre les dictées
 
 [inject]
 trailing_space = true                 # espace après le texte tapé
+short_text_words = 3                  # textes courts (≤ 3 mots) sans ponctuation ; 0 : jamais
 
 [indicator]
 enabled = true                        # animation à côté du curseur

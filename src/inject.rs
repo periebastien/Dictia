@@ -15,6 +15,33 @@ pub enum Keystroke {
     Backspace,
 }
 
+/// Retire la ponctuation ajoutée par le modèle quand le texte compte au plus
+/// `max_words` mots (0 : jamais). Les signes entre deux lettres ou chiffres
+/// (« 12:30 », « 3.5 ») sont gardés, comme les apostrophes et les tirets.
+pub fn strip_short_punctuation(text: &str, max_words: u32) -> String {
+    let words = text
+        .split_whitespace()
+        .filter(|w| w.chars().any(char::is_alphanumeric))
+        .count();
+    if max_words == 0 || words == 0 || words > max_words as usize {
+        return text.to_owned();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    for (i, &c) in chars.iter().enumerate() {
+        if matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '…' | '¡' | '¿') {
+            let between = i > 0
+                && chars[i - 1].is_alphanumeric()
+                && chars.get(i + 1).is_some_and(|n| n.is_alphanumeric());
+            if !between {
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Texte final à taper : sans blancs superflus, avec l'espace finale
 /// optionnelle pour enchaîner les dictées.
 pub fn prepare_text(text: &str, trailing_space: bool) -> String {
@@ -158,6 +185,28 @@ mod tests {
             [Backspace, Backspace, Unit(b'a' as u16), Enter]
         );
         assert!(correction(0, "").is_empty());
+    }
+
+    #[test]
+    fn strips_punctuation_of_short_texts() {
+        assert_eq!(strip_short_punctuation("Bonjour.", 3), "Bonjour");
+        assert_eq!(strip_short_punctuation("Ça va ?", 3), "Ça va");
+        assert_eq!(
+            strip_short_punctuation("Oui, d'accord !", 3),
+            "Oui d'accord"
+        );
+        assert_eq!(
+            strip_short_punctuation("Rendez-vous à 12:30.", 3),
+            "Rendez-vous à 12:30"
+        );
+        assert_eq!(strip_short_punctuation("Bon...", 3), "Bon");
+        // Plus long que la limite, ou réglage désactivé : inchangé.
+        assert_eq!(
+            strip_short_punctuation("Je pars demain matin.", 3),
+            "Je pars demain matin."
+        );
+        assert_eq!(strip_short_punctuation("Bonjour.", 0), "Bonjour.");
+        assert_eq!(strip_short_punctuation("", 3), "");
     }
 
     #[test]

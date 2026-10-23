@@ -614,6 +614,9 @@ impl Controller {
             log::info!("transcription ignorée : le modèle a recopié le prompt (pas de parole ?)");
             String::new()
         } else {
+            // Avant les remplacements : la ponctuation dictée (« point virgule »)
+            // reste.
+            let text = inject::strip_short_punctuation(&text, config.inject.short_text_words);
             inject::prepare_text(&vocab.apply(&text), config.inject.trailing_space)
         };
         lat.chars = text.chars().count();
