@@ -172,6 +172,16 @@ impl Drop for Microphone {
     }
 }
 
+/// Vrai si l'erreur arrête le flux. Un tampon débordé (machine chargée),
+/// un changement de micro par défaut suivi automatiquement ou une priorité
+/// temps réel refusée laissent le micro enregistrer.
+fn is_fatal(kind: cpal::ErrorKind) -> bool {
+    !matches!(
+        kind,
+        cpal::ErrorKind::Xrun | cpal::ErrorKind::DeviceChanged | cpal::ErrorKind::RealtimeDenied
+    )
+}
+
 /// Noms des micros branchés, pour le choix dans les réglages.
 pub fn input_devices() -> Vec<String> {
     let host = cpal::default_host();
@@ -288,9 +298,29 @@ where
                     sink.flush(sink.chunk);
                 }
             },
-            move |err| on_error(format!("erreur du micro : {err}")),
+            move |err| {
+                if is_fatal(err.kind()) {
+                    on_error(format!("erreur du micro : {err}"));
+                } else {
+                    // Le flux continue : un simple raté audio ne coupe pas la dictée.
+                    log::warn!("micro : {err}");
+                }
+            },
             None,
         )
         .context("ouverture du flux micro")?;
     Ok(stream)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glitches_do_not_stop_the_dictation() {
+        assert!(!is_fatal(cpal::ErrorKind::Xrun));
+        assert!(!is_fatal(cpal::ErrorKind::DeviceChanged));
+        assert!(is_fatal(cpal::ErrorKind::DeviceNotAvailable));
+        assert!(is_fatal(cpal::ErrorKind::StreamInvalidated));
+    }
 }
