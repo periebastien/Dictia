@@ -49,6 +49,29 @@ pub struct Guidance<'a> {
     pub terms: &'a [String],
 }
 
+/// Termes envoyés à Voxtral (`context_bias`). Mistral refuse les espaces et
+/// les virgules : un terme de plusieurs mots est découpé, sans ses petits
+/// mots (« la hero section » → « hero », « section »).
+pub fn mistral_bias_terms(terms: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for term in terms {
+        let words: Vec<&str> = term
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|w| !w.is_empty())
+            .collect();
+        let several = words.len() > 1;
+        for word in words {
+            if several && word.chars().count() < 3 {
+                continue;
+            }
+            if !out.iter().any(|w| w == word) {
+                out.push(word.to_owned());
+            }
+        }
+    }
+    out
+}
+
 pub type ProgressFn<'a> = dyn FnMut(Progress<'_>) + Send + 'a;
 
 pub trait Backend: Send + Sync {
@@ -65,4 +88,20 @@ pub trait Backend: Send + Sync {
         guidance: Guidance<'a>,
         progress: &'a mut ProgressFn<'_>,
     ) -> BoxFuture<'a, Result<String>>;
+}
+
+#[cfg(test)]
+mod bias_tests {
+    use super::*;
+
+    #[test]
+    fn mistral_terms_have_no_spaces_or_commas() {
+        let terms: Vec<String> = ["la hero section", " n8n ", "", "AI", "Hero, CTA", "section"]
+            .map(String::from)
+            .to_vec();
+        assert_eq!(
+            mistral_bias_terms(&terms),
+            ["hero", "section", "n8n", "AI", "Hero", "CTA"]
+        );
+    }
 }

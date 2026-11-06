@@ -176,12 +176,9 @@ pub fn form_fields(
         }
         // Voxtral : une entrée `context_bias` par terme à reconnaître.
         Dialect::Mistral => fields.extend(
-            guidance
-                .terms
-                .iter()
-                .map(|t| t.trim())
-                .filter(|t| !t.is_empty())
-                .map(|t| ("context_bias", t.to_owned())),
+            super::mistral_bias_terms(guidance.terms)
+                .into_iter()
+                .map(|t| ("context_bias", t)),
         ),
     }
     fields
@@ -475,7 +472,12 @@ mod tests {
 
     #[test]
     fn mistral_fields_use_context_bias() {
-        let terms = ["JetEngine".to_owned(), " ".to_owned(), "n8n".to_owned()];
+        let terms = [
+            "JetEngine".to_owned(),
+            " ".to_owned(),
+            "n8n".to_owned(),
+            "la hero section".to_owned(),
+        ];
         let guidance = Guidance {
             prompt: "Contexte ignoré par Voxtral.",
             terms: &terms,
@@ -488,6 +490,8 @@ mod tests {
                 ("language", "fr".to_owned()),
                 ("context_bias", "JetEngine".to_owned()),
                 ("context_bias", "n8n".to_owned()),
+                ("context_bias", "hero".to_owned()),
+                ("context_bias", "section".to_owned()),
             ]
         );
     }

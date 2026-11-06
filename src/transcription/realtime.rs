@@ -159,7 +159,7 @@ pub fn mistral_session_update(language: &str, keywords: &[String]) -> Value {
     if !language.trim().is_empty() {
         session["language"] = json!(language.trim());
     }
-    let terms = clean_terms(keywords);
+    let terms = super::mistral_bias_terms(keywords);
     if !terms.is_empty() {
         session["context_bias"] = json!(terms);
     }

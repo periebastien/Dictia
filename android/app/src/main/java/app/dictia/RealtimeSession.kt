@@ -207,7 +207,7 @@ class RealtimeSession(private val prefs: Prefs, private val vocab: Vocab) : WebS
             JSONObject().put("encoding", "pcm_s16le").put("sample_rate", Audio.RATE),
         )
         if (prefs.apiLanguage.isNotEmpty()) session.put("language", prefs.apiLanguage)
-        if (vocab.cleanTerms.isNotEmpty()) session.put("context_bias", JSONArray(vocab.cleanTerms))
+        if (vocab.mistralTerms.isNotEmpty()) session.put("context_bias", JSONArray(vocab.mistralTerms))
         return JSONObject().put("type", "session.update").put("session", session)
     }
 

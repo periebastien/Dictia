@@ -23,6 +23,16 @@ data class Vocab(
 ) {
     val cleanTerms: List<String> get() = terms.map { it.trim() }.filter { it.isNotEmpty() }
 
+    /**
+     * Termes envoyés à Voxtral (context_bias). Mistral refuse les espaces et les virgules :
+     * un terme de plusieurs mots est découpé, sans ses petits mots.
+     */
+    val mistralTerms: List<String>
+        get() = terms.flatMap { term ->
+            val words = term.split(Regex("[\\s,]+")).filter { it.isNotEmpty() }
+            if (words.size > 1) words.filter { it.length >= 3 } else words
+        }.distinct()
+
     /** Contexte suivi de la liste des termes (prompt des modèles OpenAI). */
     val prompt: String
         get() = listOfNotNull(

@@ -37,7 +37,7 @@ class Transcriber(private val prefs: Prefs, private val vocab: Vocab) {
         if (prefs.apiLanguage.isNotEmpty()) field("language", prefs.apiLanguage)
         if (prefs.isMistral) {
             // Voxtral : une entrée `context_bias` par terme à reconnaître.
-            vocab.cleanTerms.forEach { field("context_bias", it) }
+            vocab.mistralTerms.forEach { field("context_bias", it) }
         } else if (vocab.prompt.isNotEmpty()) {
             field("prompt", vocab.prompt)
         }

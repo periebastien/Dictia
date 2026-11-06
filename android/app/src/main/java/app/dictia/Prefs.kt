@@ -53,7 +53,7 @@ data class Prefs(
         fun models(provider: String, engine: String): List<String> = when {
             provider == MISTRAL && engine == REALTIME ->
                 listOf("voxtral-mini-transcribe-realtime-3")
-            provider == MISTRAL -> listOf("voxtral-mini-transcribe-3")
+            provider == MISTRAL -> listOf("voxtral-mini-transcribe-3", "voxtral-mini-latest")
             engine == REALTIME ->
                 listOf("gpt-live-transcribe", "gpt-realtime-whisper", "gpt-4o-transcribe", "gpt-4o-mini-transcribe")
             else -> listOf("gpt-4o-transcribe", "gpt-4o-mini-transcribe", "gpt-transcribe", "whisper-1")

@@ -101,4 +101,10 @@ terms = ["Dictia", "OpenAI"]
         assertTrue(vocab.isPromptEcho("Vocabulaire : Dictia, n8n."))
         assertFalse(vocab.isPromptEcho("Dictia"))
     }
+
+    @Test
+    fun mistralTermsHaveNoSpacesOrCommas() {
+        val vocab = Vocab("", listOf("la hero section", " n8n ", "", "AI", "Hero, CTA", "section"), emptyList())
+        assertEquals(listOf("hero", "section", "n8n", "AI", "Hero", "CTA"), vocab.mistralTerms)
+    }
 }

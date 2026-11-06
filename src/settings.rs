@@ -24,7 +24,7 @@ pub fn suggested_models(provider: Provider) -> &'static [&'static str] {
             "gpt-transcribe",
             "whisper-1",
         ],
-        Provider::Mistral => &["voxtral-mini-transcribe-3"],
+        Provider::Mistral => &["voxtral-mini-transcribe-3", "voxtral-mini-latest"],
         Provider::Local => &["mistralai/Voxtral-Mini-4B-Realtime-2602"],
     }
 }
