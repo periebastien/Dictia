@@ -58,8 +58,8 @@ timeout_secs = 30
 # Clé API Mistral. Laissez vide pour utiliser MISTRAL_API_KEY.
 api_key = ""
 base_url = "https://api.mistral.ai/v1"
-# Modèle Voxtral du moteur standard (ex. voxtral-mini-latest).
-model = "voxtral-mini-latest"
+# Modèle Voxtral du moteur standard.
+model = "voxtral-mini-transcribe-3"
 # Modèle Voxtral du moteur realtime (choisi avec engine = "realtime").
 realtime_model = "voxtral-mini-transcribe-realtime-3"
 
@@ -406,7 +406,7 @@ impl Provider {
     pub fn default_model(self) -> &'static str {
         match self {
             Self::OpenAi => "gpt-4o-transcribe",
-            Self::Mistral => "voxtral-mini-latest",
+            Self::Mistral => "voxtral-mini-transcribe-3",
             Self::Local => "mistralai/Voxtral-Mini-4B-Realtime-2602",
         }
     }
@@ -577,7 +577,7 @@ mod tests {
         let m = cfg.endpoint(Provider::Mistral, env);
         assert_eq!(m.api_key.as_deref(), Some("sk-env"));
         assert_eq!(m.base_url, "https://api.mistral.ai/v1");
-        assert_eq!(m.model, "voxtral-mini-latest");
+        assert_eq!(m.model, "voxtral-mini-transcribe-3");
         cfg.mistral.api_key = "mk".into();
         assert_eq!(
             cfg.endpoint(Provider::Mistral, env).api_key.as_deref(),
@@ -596,7 +596,7 @@ mod tests {
         let cfg = Config::parse("[mistral]\napi_key = \"mk\"\n").unwrap();
         let m = cfg.endpoint(Provider::Mistral, |_| None);
         assert_eq!(m.base_url, "https://api.mistral.ai/v1");
-        assert_eq!(m.model, "voxtral-mini-latest");
+        assert_eq!(m.model, "voxtral-mini-transcribe-3");
         assert_eq!(m.api_key.as_deref(), Some("mk"));
         let l = cfg.endpoint(Provider::Local, |_| None);
         assert_eq!(l.base_url, "http://localhost:8000/v1");
