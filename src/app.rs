@@ -24,7 +24,7 @@ use crate::controller::{Controller, Event, Shared, SharedRef, Status};
 use crate::history::{self, Entry, Problem, HISTORY_FILE, MAX_ENTRIES};
 use crate::hotkey::{self, Registration};
 use crate::inject;
-use crate::metrics::METRICS_FILE;
+use crate::metrics::{self, METRICS_FILE};
 use crate::overlay::{self, Animation};
 use crate::platform::{self, HostWindow, OverlayWindow, UiRequest};
 use crate::settings::{self, Change, VocabEdit};
@@ -403,6 +403,17 @@ impl MainLoop {
             Command::Capture { active } => self.hotkeys.suspend(active),
             Command::OpenFolder => open_folder(&self.dir),
             Command::DismissProblem => self.problem = None,
+            Command::ResetStats => {
+                match metrics::archive_csv(&self.dir.join(METRICS_FILE)) {
+                    Ok(()) => self.send(&Message::toast("Statistiques réinitialisées")),
+                    Err(e) => self.send(&Message::error(format!(
+                        "Réinitialisation impossible : {e}"
+                    ))),
+                }
+                self.send(&Message::Stats {
+                    stats: self.stats(),
+                });
+            }
         }
     }
 

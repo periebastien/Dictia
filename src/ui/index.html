@@ -54,6 +54,7 @@ h2{margin:0;font-size:14px;font-weight:600}
 .row{display:flex;gap:8px}
 .btn{height:34px;padding:0 14px;border:0;border-radius:8px;background:var(--accent);color:#0E0E12;font-size:13px;font-weight:600}
 .btn.ghost{background:#33333C;color:var(--text);font-weight:500}
+.btn.danger{background:#E5484D;color:#fff}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 4px 0 10px;border-radius:6px;background:#2A2A33;border:1px solid var(--line);font-size:12px;color:#E4E4E7}
 .chip button{width:20px;height:20px;border:0;border-radius:4px;background:transparent;color:var(--muted);display:flex;align-items:center;justify-content:center}
@@ -186,6 +187,12 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
         <p class="sub" style="line-height:1.5">Le chiffre principal est l'<b>attente prévue pour 10 s de parole</b> : comparable entre modèles, même si vos dictées n'ont pas la même longueur.</p>
       </div>
       <div id="perf" style="display:flex;flex-direction:column;gap:8px"></div>
+      <div class="row" id="reset-stats" style="justify-content:flex-end;gap:8px">
+        <button type="button" class="btn ghost" id="reset-ask">Réinitialiser les statistiques</button>
+        <span class="sub" id="reset-q" style="align-self:center;margin-right:auto" hidden>Tout effacer ?</span>
+        <button type="button" class="btn ghost" id="reset-no" hidden>Annuler</button>
+        <button type="button" class="btn danger" id="reset-yes" hidden>Réinitialiser</button>
+      </div>
       <details class="sub" style="line-height:1.5">
         <summary style="cursor:pointer">Comment c'est calculé</summary>
         <p style="margin:6px 0 0">L'attente va de la fin de l'enregistrement au texte entièrement tapé, sans le temps où Ctrl, Alt ou Win restent enfoncés. Pour chaque modèle, elle est décomposée en une <b>part fixe</b> (réseau, mise en route) et un <b>coût par seconde de parole</b> envoyée, ajustés sur vos 200 dernières dictées par une méthode robuste (Theil-Sen) qui ignore les dictées anormalement lentes. Il faut au moins 5 dictées de durées variées (2 s d'écart) ; avant cela, la médiane brute est affichée.</p>
@@ -287,6 +294,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   // ---- navigation ----
   $('btn-stats').addEventListener('click', () => showTab('statistiques'));
   function showTab(tab) {
+    askReset(false);
     document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
     document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'view-' + tab));
     $('btn-stats').classList.toggle('on', tab === 'statistiques');
@@ -638,6 +646,14 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       ]);
     }));
   }
+
+  function askReset(on) {
+    $('reset-ask').hidden = on;
+    ['reset-q', 'reset-no', 'reset-yes'].forEach((id) => { $(id).hidden = !on; });
+  }
+  $('reset-ask').addEventListener('click', () => askReset(true));
+  $('reset-no').addEventListener('click', () => askReset(false));
+  $('reset-yes').addEventListener('click', () => { askReset(false); send({ cmd: 'reset_stats' }); });
 
   // ---- messages venant de Dictia ----
   window.dictia = {

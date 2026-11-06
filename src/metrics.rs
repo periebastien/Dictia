@@ -104,6 +104,22 @@ impl Latencies {
     }
 }
 
+/// Repart de zéro : l'ancien fichier est gardé à côté, daté
+/// (`latences-<horodatage>.csv`), pour ne rien perdre.
+pub fn archive_csv(path: &Path) -> std::io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("latences");
+    std::fs::rename(path, path.with_file_name(format!("{stem}-{now}.csv")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,5 +172,20 @@ mod tests {
         assert_eq!(lines.len(), 3);
         assert_eq!(lines[0], CSV_HEADER);
         std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn archive_keeps_the_old_file_and_starts_over() {
+        let dir = std::env::temp_dir().join(format!("dictia-archive-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(METRICS_FILE);
+        archive_csv(&path).unwrap();
+        sample().append_csv(&path).unwrap();
+        archive_csv(&path).unwrap();
+        assert!(!path.exists());
+        let kept: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
+        assert_eq!(kept.len(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

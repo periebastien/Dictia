@@ -58,6 +58,8 @@ pub enum Command {
     OpenFolder,
     /// Le problème affiché a été lu.
     DismissProblem,
+    /// Remise à zéro des statistiques (confirmée dans la page).
+    ResetStats,
 }
 
 impl Command {
@@ -309,6 +311,10 @@ mod tests {
         assert_eq!(
             Command::parse(r#"{"cmd":"dismiss_problem"}"#),
             Some(Command::DismissProblem)
+        );
+        assert_eq!(
+            Command::parse(r#"{"cmd":"reset_stats"}"#),
+            Some(Command::ResetStats)
         );
         assert_eq!(
             Command::parse(
