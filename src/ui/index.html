@@ -291,8 +291,6 @@ body.compact #bar{display:flex}
         <div class="set"><div class="lbl"><label for="url">Adresse de l'API</label></div>
           <input id="url" class="field" autocomplete="off" spellcheck="false" style="width:190px;height:30px;font-size:12px"></div>
       </div>
-      <div class="section">Clés API</div>
-      <div class="list" id="keys"></div>
       <div class="section">Transformation par IA</div>
       <div class="notice" id="tr-notice" hidden></div>
       <div class="list">
@@ -327,6 +325,8 @@ body.compact #bar{display:flex}
         <div class="set"><div class="lbl"><span>Couleur d'accent</span></div>
           <div class="swatches" id="swatches"></div></div>
       </div>
+      <div class="section">Clés API</div>
+      <div class="list" id="keys"></div>
       <div class="footer"><button class="link" id="open-folder">Ouvrir le dossier de configuration</button><span id="version"></span></div>
     </section>
   </main>
@@ -776,7 +776,7 @@ body.compact #bar{display:flex}
     $('tr-model').value = t.model;
     const name = t.provider === 'mistral' ? 'Mistral' : 'OpenAI';
     $('tr-notice').hidden = t.ready;
-    $('tr-notice').textContent = 'Ajoutez la clé ' + name + ' ci-dessus pour utiliser la transformation.';
+    $('tr-notice').textContent = 'Ajoutez la clé ' + name + ' en bas des Réglages pour utiliser la transformation.';
     $('tr-langs').replaceChildren(...t.languages.map((l) => el('span', { class: 'chip' }, [
       l.name,
       el('button', { 'aria-label': 'Retirer ' + l.name, html: ICON_X, onclick: () =>
@@ -911,7 +911,7 @@ body.compact #bar{display:flex}
     $('short-words').value = String(s.short_text_words);
     const missing = p.needs_key && !p.api_key_set;
     $('key-notice').hidden = !missing;
-    $('key-notice').textContent = 'Ajoutez votre clé API ' + p.name + ' ci-dessous pour commencer à dicter.';
+    $('key-notice').textContent = 'Ajoutez votre clé API ' + p.name + ' en bas des Réglages pour commencer à dicter.';
     setToggle('t-indicator', s.indicator);
     setToggle('t-space', s.trailing_space);
     setToggle('t-live', s.live_typing);

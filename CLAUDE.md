@@ -122,3 +122,17 @@ Pistes notées, non planifiées.
   d'accès).
 - **Ordre suggéré** : 1) compte et synchronisation ; 2) extension Chrome
   Gmail ; 3) lien avec le coffre clients.
+- **Dicter avec un bouton de souris (PC)** : pour les souris non
+  programmables. Surveillance des boutons par un hook souris bas niveau
+  (`WH_MOUSE_LL`, dans `src/platform/windows.rs`), rappel minimal pour ne pas
+  dépasser le délai de Windows. Choix dans l'onglet Raccourcis : Aucun,
+  bouton latéral arrière, bouton latéral avant (recommandés : présents sur
+  presque toutes les souris, l'appui est « avalé » pour que le navigateur ne
+  revienne pas en arrière), ou molette en appui long. Pour la molette : le
+  micro démarre dès l'appui (aucun délai ajouté) ; si le bouton est relâché
+  vite, l'enregistrement est annulé et le clic du milieu est renvoyé
+  normalement (le défilement automatique n'est plus possible). Au choix :
+  maintenir pour parler ou bascule ; détection du bouton par « appuyez sur le
+  bouton à utiliser ». Suit le mode choisi (Brut, Traduire, Réécrire…) comme
+  le raccourci principal. Limites : pas dans les fenêtres administrateur si
+  Dictia ne l'est pas ; certains jeux bloquent ce hook.
