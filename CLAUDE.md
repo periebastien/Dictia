@@ -82,3 +82,17 @@ modèle ; liste de remplacements `de → vers` appliqués au texte transcrit.
   `main`.
 - `cargo check` et `cargo clippy -- -D warnings` propres pour la cible
   `x86_64-pc-windows-gnu` ; `cargo test` vert sous Linux.
+
+## Idées pour plus tard
+
+Pistes notées, non planifiées.
+
+- **Apprendre des corrections** : après une dictée, relire le champ où le
+  texte a été tapé (UI Automation sous Windows, service d'accessibilité sous
+  Android), le comparer mot à mot au texte tapé et, pour une petite
+  correction (un ou deux mots), proposer de l'ajouter au vocabulaire ou aux
+  remplacements — toujours avec validation, jamais automatiquement. Limites :
+  toutes les applications n'exposent pas leur texte ; une reformulation n'est
+  pas une erreur de dictée ; ne relire que le champ visé, juste après la
+  dictée. Variante plus simple et fiable : corriger la dictée dans l'onglet
+  Historique et en déduire le terme.
