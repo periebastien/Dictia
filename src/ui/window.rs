@@ -1,5 +1,6 @@
 //! Hôte WebView2 de la fenêtre Dictia.
 
+use std::cell::Cell;
 use std::num::NonZeroIsize;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
@@ -10,7 +11,7 @@ use raw_window_handle::{
 };
 use wry::{WebContext, WebView, WebViewBuilder};
 
-use super::{Command, Message, HEIGHT, HTML, WIDTH};
+use super::{Command, Message, BAR_HEIGHT, BAR_MENU_MAX_HEIGHT, BAR_WIDTH, HEIGHT, HTML, WIDTH};
 use crate::platform::{self, AppWindow};
 
 struct Parent(isize);
@@ -31,6 +32,10 @@ pub struct UiWindow {
     webview: WebView,
     window: AppWindow,
     _context: WebContext,
+    /// Fenêtre normale à retrouver en quittant la barre réduite.
+    normal: Cell<Option<(i32, i32, i32, i32)>>,
+    /// Coin de la barre réduite (gardé quand le menu l'agrandit).
+    bar: Cell<Option<(i32, i32)>>,
 }
 
 impl UiWindow {
@@ -67,6 +72,8 @@ impl UiWindow {
             webview,
             window,
             _context: context,
+            normal: Cell::new(None),
+            bar: Cell::new(None),
         })
     }
 
@@ -91,5 +98,45 @@ impl UiWindow {
 
     pub fn begin_drag(&self) {
         self.window.begin_drag();
+    }
+
+    /// Barre réduite au premier plan (`menu` : hauteur en px logiques,
+    /// agrandie pour le menu des modes), ou retour à la fenêtre normale.
+    pub fn set_compact(&self, on: bool, menu: Option<u32>) {
+        let scale = platform::system_scale();
+        let px = |v: u32| (v as f32 * scale).round() as i32;
+        let current = self.window.rect();
+        let (left, top, right, bottom) = self.window.work_area();
+        // Barre seule à l'écran (peut-être déplacée), et non menu ouvert.
+        let small = current.3 <= px(BAR_HEIGHT) + 2;
+        if !on {
+            if let Some((x, y, w, h)) = self.normal.take() {
+                if small {
+                    self.bar.set(Some((current.0, current.1)));
+                }
+                self.window.place(x, y, w, h, false);
+            }
+            return;
+        }
+        let entering = self.normal.get().is_none();
+        if entering {
+            self.normal.set(Some(current));
+        }
+        let (w, h) = (
+            px(BAR_WIDTH),
+            px(menu.map_or(BAR_HEIGHT, |h| h.clamp(BAR_HEIGHT, BAR_MENU_MAX_HEIGHT))),
+        );
+        // La barre reprend sa dernière place (le coin de la fenêtre la
+        // première fois) ; menu ouvert, elle garde la sienne.
+        let (x, y) = if small && !entering {
+            (current.0, current.1)
+        } else {
+            self.bar.get().unwrap_or((current.0, current.1))
+        };
+        self.bar.set(Some((x, y)));
+        // Reste dans l'écran (le menu remonte la barre près du bas).
+        let x = x.clamp(left, (right - w).max(left));
+        let y = y.clamp(top, (bottom - h).max(top));
+        self.window.place(x, y, w, h, true);
     }
 }

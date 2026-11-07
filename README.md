@@ -240,6 +240,28 @@ fournisseur, le modèle et l'attente des touches.
 Fermer la fenêtre la libère entièrement : Dictia continue de tourner dans la
 zone de notification.
 
+### Transformation par IA et barre réduite
+
+Le raccourci **Dicter avec transformation** (`Ctrl+Alt+T` par défaut) fait
+retravailler le texte dicté par une IA avant de le taper :
+
+- **Traduire** dans une langue choisie (les langues proposées se règlent) ;
+- **Réécrire** : professionnel, plus court, corriger les fautes, amical ;
+- **Personnalisé** : vos propres consignes (« Rédige un e-mail poli… »).
+
+Le raccourci habituel tape toujours le texte brut. L'IA est celle d'OpenAI
+ou de Mistral, avec la clé déjà saisie ; le modèle se choisit dans
+*Réglages → Transformation par IA* (bouton pour lire la liste des modèles
+chez le fournisseur). La réponse est tapée au fil de l'eau ; si l'IA échoue,
+le texte brut est tapé et le problème est signalé. L'historique garde les
+deux versions (*Voir l'original*).
+
+L'icône **Mode réduit** de l'en-tête transforme la fenêtre en une petite
+barre qui reste au premier plan : état de la dictée, choix du mode, bouton
+micro (dicte avec le mode actif dans l'application utilisée juste avant),
+annulation et retour à la fenêtre complète. La barre se déplace à la
+souris.
+
 En cas d'erreur (réseau, clé invalide, micro), un son système retentit,
 l'icône devient grise et le détail est écrit dans `dictia.log`.
 

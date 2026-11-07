@@ -25,6 +25,7 @@ mod platform;
 mod settings;
 mod stats;
 mod transcription;
+mod transform;
 mod tray;
 mod ui;
 mod vocab;

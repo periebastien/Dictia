@@ -20,6 +20,7 @@ header{height:52px;flex-shrink:0;display:flex;align-items:center;gap:10px;paddin
 .pill.idle{background:rgba(74,222,128,0.12);color:#86EFAC}.pill.idle .dot{background:#4ADE80}
 .pill.recording{background:rgba(248,113,113,0.14);color:#FCA5A5}.pill.recording .dot{background:#F87171;animation:pulse 1.1s ease-in-out infinite}
 .pill.processing{background:rgba(96,165,250,0.14);color:#BFDBFE}.pill.processing .dot{background:#60A5FA;animation:pulse .8s ease-in-out infinite}
+.pill.transforming{background:rgba(192,132,252,0.14);color:#E9D5FF}.pill.transforming .dot{background:#C084FC;animation:pulse .8s ease-in-out infinite}
 .pill.error{background:rgba(161,161,170,0.16);color:#D4D4D8}.pill.error .dot{background:#A1A1AA}
 @keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.5);opacity:.5}}
 .grow{flex-grow:1}
@@ -41,7 +42,7 @@ main::-webkit-scrollbar{width:8px}main::-webkit-scrollbar-thumb{background:#3333
 .card{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:var(--panel);border:1px solid var(--line)}
 .card p{margin:0;font-size:13px;line-height:1.45;color:#E4E4E7;white-space:pre-wrap;word-break:break-word}
 .meta{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
-.tag{padding:1px 7px;border-radius:5px;background:var(--chip);color:var(--soft)}
+.tag{padding:1px 7px;border-radius:5px;background:var(--chip);color:var(--soft);white-space:nowrap}
 .mini{width:26px;height:26px;border:0;border-radius:6px;background:var(--chip);color:var(--soft);display:flex;align-items:center;justify-content:center}
 .mini:hover{color:#fff;background:#3A3A45}
 .problem{display:flex;gap:8px;align-items:flex-start;margin:0 0 10px;padding:8px 10px;border-radius:8px;background:rgba(127,29,29,0.35);border:1px solid rgba(248,113,113,0.35);color:#FECACA;font-size:12px;line-height:1.45;word-break:break-word}
@@ -114,6 +115,43 @@ nav button:hover{color:#fff}
 nav button.on{color:var(--accent);font-weight:600}
 nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.prompt{display:flex;align-items:flex-start;gap:8px;padding:8px 8px 8px 12px}
+.prompt div{flex-grow:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.prompt b{font-size:13px;font-weight:500}
+.prompt span{font-size:11px;color:var(--muted);line-height:1.4;word-break:break-word}
+.prompt button{width:22px;height:22px;flex-shrink:0;border:0;border-radius:4px;background:transparent;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.prompt button:hover{color:#fff}
+textarea.field{height:64px;padding:8px 12px;resize:none;line-height:1.4}
+/* Barre réduite (fenêtre au premier plan) */
+body.compact .app,body.compact .toast{display:none}
+#bar{display:none;flex-direction:column;gap:8px;height:100%}
+body.compact{background:transparent}
+body.compact #bar{display:flex}
+.bar{height:44px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 6px 0 8px;border-radius:12px;background:#1E1E25;border:1px solid rgba(255,255,255,0.10)}
+.bar.recording{border-color:rgba(248,113,113,0.45);padding-left:12px}
+.bar.processing{border-color:rgba(96,165,250,0.45);padding-left:12px}
+.bar.transforming{border-color:rgba(192,132,252,0.45);padding-left:12px}
+.bar.inserted{border-color:rgba(74,222,128,0.45);padding-left:12px}
+.bar-mic{width:28px;height:28px;flex-shrink:0;border:0;border-radius:8px;background:var(--accent);display:flex;align-items:center;justify-content:center}
+.bar-text{font-size:13px;color:var(--soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;font-variant-numeric:tabular-nums}
+.bar-chip{display:flex;align-items:center;gap:5px;height:26px;padding:0 8px;flex-shrink:1;min-width:0;border-radius:7px;font-size:12px;font-weight:600;border:1px solid rgba(255,255,255,0.10);background:var(--chip);color:var(--soft)}
+.bar-chip.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--text)}
+.bar-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-btn{width:30px;height:30px;flex-shrink:0;border:0;border-radius:7px;background:transparent;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.bar-btn:hover{background:rgba(255,255,255,0.06);color:#fff}
+.bar-btn.stop{background:#F87171;color:#0E0E12}
+.rec-dot{width:10px;height:10px;flex-shrink:0;border-radius:50%;background:#F87171;animation:pulse 1.1s ease-in-out infinite}
+.waves{display:flex;align-items:center;gap:3px;height:22px}
+.waves span{width:3px;height:22px;border-radius:2px;background:#FCA5A5;animation:wave .9s ease-in-out infinite;transform-origin:center}
+@keyframes wave{0%,100%{transform:scaleY(.35)}50%{transform:scaleY(1)}}
+.spin{animation:spin .8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.bar-menu{display:flex;flex-direction:column;gap:2px;padding:6px;border-radius:10px;background:var(--panel);border:1px solid rgba(255,255,255,0.10);overflow-y:auto}
+.bar-menu .section{padding:6px 8px 2px;font-size:10px}
+.bar-menu .opts{display:flex;flex-wrap:wrap;gap:4px;padding:2px 4px 4px}
+.opt{height:26px;padding:0 10px;border-radius:6px;font-size:12px;font-weight:500;border:1px solid rgba(255,255,255,0.08);background:#2A2A33;color:var(--soft)}
+.opt.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--text);font-weight:600}
+.bar-menu .foot{margin-top:4px;padding:8px;border-top:1px solid var(--line);display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -124,7 +162,8 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     <div id="status" class="pill idle"><span class="dot"></span><span id="status-text">Prêt</span></div>
     <div class="grow"></div>
     <button class="icon-btn" id="btn-stats" aria-label="Statistiques" title="Statistiques"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-4M12 16V8M17 16v-7"/></svg></button>
-    <button class="icon-btn" id="btn-min" aria-label="Réduire"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+    <button class="icon-btn" id="btn-compact" aria-label="Mode réduit : barre au premier plan" title="Mode réduit"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><rect x="11" y="13" width="7" height="4" rx="1"/></svg></button>
+    <button class="icon-btn" id="btn-min" aria-label="Réduire" title="Réduire"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
     <button class="icon-btn" id="btn-close" aria-label="Fermer dans la zone de notification"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
 
@@ -218,6 +257,30 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       </div>
       <div class="section">Clés API</div>
       <div class="list" id="keys"></div>
+      <div class="section">Transformation par IA</div>
+      <div class="notice" id="tr-notice" hidden></div>
+      <div class="list">
+        <div class="set"><div class="lbl"><span>IA utilisée</span><span>Avec la clé de ce fournisseur</span></div>
+          <div class="seg" id="tr-provider"><button data-provider="openai">OpenAI</button><button data-provider="mistral">Mistral</button></div></div>
+        <div class="set"><div class="lbl"><label for="tr-model">Modèle</label><span>Coût et qualité selon le modèle</span></div>
+          <select id="tr-model" class="field" style="max-width:170px"></select>
+          <button class="mini" id="tr-refresh" aria-label="Lire la liste des modèles chez le fournisseur" title="Lire la liste des modèles"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></button></div>
+        <div class="set"><div class="lbl"><label for="tr-mode">Mode actif</label><span>Aussi dans la barre réduite</span></div>
+          <select id="tr-mode" class="field" style="max-width:190px"></select></div>
+      </div>
+      <div class="section">Langues de traduction</div>
+      <div class="chips" id="tr-langs"></div>
+      <div class="row"><label for="tr-lang-add" class="sr">Ajouter une langue</label><select id="tr-lang-add" class="field"></select></div>
+      <div class="section">Consignes personnalisées</div>
+      <div class="list" id="tr-prompts"></div>
+      <form class="addrep" id="prompt-form">
+        <label for="prompt-name" class="sr">Nom de la consigne</label>
+        <input id="prompt-name" class="field" placeholder="Nom (ex. E-mail client)" autocomplete="off">
+        <label for="prompt-text" class="sr">Consigne</label>
+        <textarea id="prompt-text" class="field" placeholder="Consigne (ex. Rédige un e-mail poli et concis, avec vouvoiement.)"></textarea>
+        <div class="row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="prompt-cancel">Annuler</button><button class="btn" type="submit">Ajouter</button></div>
+      </form>
+      <button class="dashed" id="prompt-open"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg>Nouvelle consigne</button>
       <div class="section">Dictée</div>
       <div class="list">
         <div class="set"><div class="lbl"><span>Animation près du curseur</span><span>Écoute en rouge, transcription en bleu</span></div>
@@ -255,6 +318,24 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
 </div>
 <div class="toast" id="toast" role="status"></div>
 
+<!-- Barre réduite -->
+<div id="bar">
+  <div class="bar" id="bar-main">
+    <button class="bar-mic" id="bar-mic" aria-label="Dicter avec le mode actif" title="Dicter avec le mode actif"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#0E0E12" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg></button>
+    <span class="rec-dot" id="bar-dot" hidden></span>
+    <span class="waves" id="bar-waves" aria-hidden="true" hidden><span></span><span style="animation-delay:.15s"></span><span style="animation-delay:.3s"></span><span style="animation-delay:.45s"></span><span style="animation-delay:.6s"></span></span>
+    <svg class="spin" id="bar-spin" hidden aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60A5FA" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>
+    <svg id="bar-check" hidden aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M20 6 9 17l-5-5"/></svg>
+    <span class="bar-text" id="bar-text">Prêt</span>
+    <button class="bar-chip" id="bar-mode" aria-label="Mode de transformation" aria-expanded="false"><span id="bar-mode-text">Brut</span><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="m6 9 6 6 6-6"/></svg></button>
+    <div class="grow"></div>
+    <button class="bar-btn" id="bar-cancel" aria-label="Annuler l'écoute" title="Annuler" hidden><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    <button class="bar-btn stop" id="bar-stop" aria-label="Arrêter et transcrire" title="Arrêter" hidden><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></button>
+    <button class="bar-btn" id="bar-expand" aria-label="Agrandir" title="Agrandir"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+  </div>
+  <div class="bar-menu" id="bar-menu" role="menu" aria-label="Modes" hidden></div>
+</div>
+
 <script>
 (function () {
   'use strict';
@@ -264,7 +345,7 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   const ICON_INSERT = '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>';
   const ICON_X = '<svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
   const ICON_ARROW = '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8B8B95" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
-  const STATUS = { idle: 'Prêt', recording: 'Écoute', processing: 'Transcription', error: 'Erreur' };
+  const STATUS = { idle: 'Prêt', recording: 'Écoute', processing: 'Transcription', transforming: 'Transformation', error: 'Erreur' };
 
   const state = { history: [], vocab: { terms: [], replacements: [] }, settings: {}, filter: 'tout', query: '', capturing: null };
 
@@ -307,11 +388,13 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     if (e.button === 0 && !e.target.closest('button')) send({ cmd: 'drag' });
   });
   $('btn-min').addEventListener('click', () => send({ cmd: 'minimize' }));
+  $('btn-compact').addEventListener('click', () => send({ cmd: 'compact', on: true }));
   $('btn-close').addEventListener('click', () => send({ cmd: 'close' }));
 
   function setStatus(s) {
     $('status').className = 'pill ' + s;
     $('status-text').textContent = STATUS[s] || STATUS.idle;
+    renderBar(s);
   }
   function setAccent(hex) { document.documentElement.style.setProperty('--accent', hex); }
 
@@ -366,16 +449,26 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
         frag.append(el('div', { class: 'section', style: 'margin:6px 0 8px', text: label }));
         lastLabel = label;
       }
+      // Dictée transformée : le texte d'origine reste consultable.
+      let showOriginal = false;
+      const shown = () => (showOriginal ? e.original : e.text);
+      const text = el('p', { text: e.text });
+      const toggle = e.original ? [el('button', { class: 'link', style: 'align-self:flex-start', text: 'Voir l’original', onclick: (ev) => {
+        showOriginal = !showOriginal;
+        text.textContent = shown();
+        ev.target.textContent = showOriginal ? 'Voir la version ' + e.transform : 'Voir l’original';
+      } })] : [];
       const meta = el('div', { class: 'meta' }, [
         ...(e.app ? [el('span', { class: 'tag', text: e.app })] : []),
-        el('span', { text: clock(e.at_ms) + ' · ' + duration(e.duration_ms) + ' · ' + e.mode }),
+        ...(e.transform ? [el('span', { class: 'tag', text: e.transform })] : []),
+        el('span', { style: 'white-space:nowrap', text: clock(e.at_ms) + ' · ' + duration(e.duration_ms) + (e.transform ? '' : ' · ' + e.mode) }),
         el('div', { class: 'grow' }),
         el('button', { class: 'mini', 'aria-label': 'Copier', title: 'Copier', html: ICON_COPY,
-          onclick: () => send({ cmd: 'copy', text: e.text }) }),
+          onclick: () => send({ cmd: 'copy', text: shown() }) }),
         el('button', { class: 'mini', 'aria-label': 'Réinsérer au curseur', title: 'Réinsérer au curseur', html: ICON_INSERT,
-          onclick: () => send({ cmd: 'reinsert', text: e.text }) })
+          onclick: () => send({ cmd: 'reinsert', text: shown() }) })
       ]);
-      frag.append(el('article', { class: 'card', style: 'margin-bottom:8px' }, [el('p', { text: e.text }), meta]));
+      frag.append(el('article', { class: 'card', style: 'margin-bottom:8px' }, [text, ...toggle, meta]));
     }
     box.append(frag);
   }
@@ -435,11 +528,14 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   // ---- raccourcis ----
   const MODES = [
     { key: 'shortcut', label: 'Mode bascule', hint: 'Appuyer pour commencer, ré-appuyer pour finir' },
-    { key: 'push_to_talk', label: 'Maintenir pour parler', hint: 'Enregistre tant que les touches sont maintenues' }
+    { key: 'push_to_talk', label: 'Maintenir pour parler', hint: 'Enregistre tant que les touches sont maintenues', optional: true },
+    { key: 'transform_shortcut', label: 'Dicter avec transformation', hint: 'Bascule ; texte retravaillé par l’IA (mode actif)', optional: true }
   ];
+  const shortcutValue = (key) => (key === 'transform_shortcut'
+    ? (state.settings.transform || {}).shortcut : state.settings[key]) || '';
   function renderShortcuts() {
     $('shortcuts').replaceChildren(...MODES.map((m) => {
-      const value = state.settings[m.key] || '';
+      const value = shortcutValue(m.key);
       let control;
       if (state.capturing === m.key) {
         control = el('button', { class: 'capture', text: 'Appuyez sur une combinaison…', onclick: () => stopCapture() });
@@ -449,8 +545,8 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
       } else {
         control = el('button', { class: 'btn ghost', style: 'height:28px;font-size:12px', text: 'Définir', onclick: () => startCapture(m.key) });
       }
-      const extra = m.key === 'push_to_talk' && value && state.capturing !== m.key
-        ? [el('button', { class: 'link', text: 'Désactiver', onclick: () => send({ cmd: 'change', change: { kind: 'push_to_talk', value: '' } }) })]
+      const extra = m.optional && value && state.capturing !== m.key
+        ? [el('button', { class: 'link', text: 'Désactiver', onclick: () => send({ cmd: 'change', change: { kind: m.key, value: '' } }) })]
         : [];
       return el('div', { class: 'set' }, [
         el('div', { class: 'lbl' }, [el('span', { text: m.label }), el('span', { text: m.hint })]),
@@ -541,6 +637,168 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
   $('tail').addEventListener('change', (e) => send({ cmd: 'change', change: { kind: 'release_tail', value: Number(e.target.value) } }));
   $('open-folder').addEventListener('click', () => send({ cmd: 'open_folder' }));
 
+  // ---- transformation par IA ----
+  const tr = () => state.settings.transform;
+  const changeTr = (kind, value) => send({ cmd: 'change', change: { kind, value } });
+  /** Modes proposés : [{ title, items: [{ id, label }] }]. */
+  function modeGroups() {
+    const t = tr();
+    return [
+      { title: 'Brut', items: [{ id: 'brut', label: 'Texte dicté' }] },
+      { title: 'Traduire en', items: t.languages.map((l) => ({ id: 'traduire:' + l.code, label: l.name, long: '→ ' + l.name })) },
+      { title: 'Réécrire', items: t.styles.map((x) => ({ id: 'reecrire:' + x.id, label: x.name })) },
+      { title: 'Personnalisé', items: t.prompts.map((p) => ({ id: 'perso:' + p.name, label: p.name })) }
+    ].filter((g) => g.items.length);
+  }
+  $('tr-provider').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (b && b.dataset.provider !== tr().provider) changeTr('transform_provider', b.dataset.provider);
+  });
+  $('tr-model').addEventListener('change', (e) => changeTr('transform_model', e.target.value));
+  $('tr-refresh').addEventListener('click', () => { send({ cmd: 'fetch_models' }); toast('Lecture des modèles…'); });
+  $('tr-mode').addEventListener('change', (e) => changeTr('transform_mode', e.target.value));
+  $('tr-lang-add').addEventListener('change', (e) => {
+    const code = e.target.value;
+    if (!code) return;
+    changeTr('transform_languages', tr().languages.map((l) => l.code).concat([code]));
+  });
+  function savePrompts(list) { changeTr('transform_prompts', list); }
+  $('prompt-open').addEventListener('click', () => { $('prompt-form').classList.add('on'); $('prompt-open').hidden = true; $('prompt-name').focus(); });
+  function closePromptForm() { $('prompt-form').classList.remove('on'); $('prompt-open').hidden = false; $('prompt-name').value = ''; $('prompt-text').value = ''; }
+  $('prompt-cancel').addEventListener('click', closePromptForm);
+  $('prompt-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = $('prompt-name').value.trim();
+    const text = $('prompt-text').value.trim();
+    if (!name) { $('prompt-name').focus(); return; }
+    if (!text) { $('prompt-text').focus(); return; }
+    savePrompts(tr().prompts.filter((p) => p.name !== name).concat([{ name, text }]));
+    closePromptForm();
+  });
+  function renderTransform() {
+    const t = tr();
+    document.querySelectorAll('#tr-provider button').forEach((b) => b.classList.toggle('on', b.dataset.provider === t.provider));
+    $('tr-model').replaceChildren(...t.models.map((m) => el('option', { value: m, text: m })));
+    $('tr-model').value = t.model;
+    const groups = modeGroups();
+    $('tr-mode').replaceChildren(...groups.map((g) => el('optgroup', { label: g.title },
+      g.items.map((i) => el('option', { value: i.id, text: i.long || i.label })))));
+    $('tr-mode').value = t.mode;
+    const name = t.provider === 'mistral' ? 'Mistral' : 'OpenAI';
+    $('tr-notice').hidden = t.ready;
+    $('tr-notice').textContent = 'Ajoutez la clé ' + name + ' ci-dessus pour utiliser la transformation.';
+    $('tr-langs').replaceChildren(...t.languages.map((l) => el('span', { class: 'chip' }, [
+      l.name,
+      el('button', { 'aria-label': 'Retirer ' + l.name, html: ICON_X, onclick: () =>
+        changeTr('transform_languages', t.languages.filter((x) => x.code !== l.code).map((x) => x.code)) })
+    ])));
+    const taken = new Set(t.languages.map((l) => l.code));
+    $('tr-lang-add').replaceChildren(el('option', { value: '', text: 'Ajouter une langue…' }),
+      ...t.all_languages.filter((l) => !taken.has(l.code)).map((l) => el('option', { value: l.code, text: l.name })));
+    const prompts = $('tr-prompts');
+    prompts.hidden = t.prompts.length === 0;
+    prompts.replaceChildren(...t.prompts.map((p) => el('div', { class: 'prompt' }, [
+      el('div', {}, [el('b', { text: p.name }), el('span', { text: p.text })]),
+      el('button', { 'aria-label': 'Supprimer la consigne ' + p.name, html: ICON_X, onclick: () =>
+        savePrompts(t.prompts.filter((x) => x.name !== p.name)) })
+    ])));
+    renderBar();
+  }
+
+  // ---- barre réduite ----
+  const bar = { status: 'idle', since: 0, timer: null, inserted: null, menu: false };
+  function setCompact(on) {
+    document.body.classList.toggle('compact', on);
+    // La fenêtre a déjà repris sa taille : le menu se ferme sans rien demander.
+    bar.menu = false;
+    renderMenu();
+    renderBar();
+  }
+  function openMenu() {
+    bar.menu = true;
+    renderMenu();
+    // La fenêtre s'agrandit juste assez pour le menu.
+    const menu = $('bar-menu');
+    send({ cmd: 'compact_menu', open: true, height: Math.ceil(44 + 8 + menu.scrollHeight + 2) });
+  }
+  function closeMenu() {
+    if (!bar.menu) return;
+    bar.menu = false;
+    send({ cmd: 'compact_menu', open: false, height: 44 });
+    renderMenu();
+  }
+  function renderMenu() {
+    const menu = $('bar-menu');
+    menu.hidden = !bar.menu;
+    $('bar-mode').setAttribute('aria-expanded', bar.menu ? 'true' : 'false');
+    if (!bar.menu || !state.settings.transform) return;
+    const t = tr();
+    const items = modeGroups().map((g) => [
+      el('div', { class: 'section', text: g.title }),
+      el('div', { class: 'opts' }, g.items.map((i) => el('button', {
+        class: 'opt' + (i.id === t.mode ? ' on' : ''), role: 'menuitemradio',
+        'aria-checked': i.id === t.mode ? 'true' : 'false', text: i.label,
+        onclick: () => { changeTr('transform_mode', i.id); closeMenu(); }
+      })))
+    ]).flat();
+    const foot = el('div', { class: 'foot' }, t.shortcut
+      ? [el('kbd', { text: t.shortcut }), 'dicte avec ce mode']
+      : ['Choisissez un raccourci dans Raccourcis']);
+    menu.replaceChildren(...items, el('div', { class: 'opts' }, [el('button', { class: 'opt', text: '+ Nouvelle consigne',
+      onclick: () => { send({ cmd: 'compact', on: false }); showTab('reglages'); $('prompt-open').click(); } })]), foot);
+  }
+  function renderBar(status) {
+    if (status) {
+      if (status === 'recording' && bar.status !== 'recording') bar.since = Date.now();
+      bar.status = status;
+    }
+    if (!document.body.classList.contains('compact')) return;
+    const st = bar.status;
+    const inserted = st === 'idle' && bar.inserted;
+    const busy = st === 'processing' || st === 'transforming';
+    $('bar-main').className = 'bar ' + (inserted ? 'inserted' : st);
+    $('bar-mic').hidden = st === 'recording' || busy || !!inserted;
+    $('bar-dot').hidden = $('bar-waves').hidden = st !== 'recording';
+    // Les <svg> n'ont pas de propriété `hidden` : on passe par l'attribut.
+    $('bar-spin').toggleAttribute('hidden', !busy);
+    $('bar-spin').setAttribute('stroke', st === 'transforming' ? '#C084FC' : '#60A5FA');
+    $('bar-check').toggleAttribute('hidden', !inserted);
+    $('bar-cancel').hidden = $('bar-stop').hidden = st !== 'recording';
+    $('bar-expand').hidden = st === 'recording';
+    const t = state.settings.transform;
+    const label = t ? t.label : 'Brut';
+    let text = 'Prêt';
+    if (st === 'recording') text = duration(Date.now() - bar.since);
+    else if (st === 'processing') text = 'Transcription…';
+    else if (st === 'transforming') text = label.startsWith('→') ? 'Traduction…' : 'Réécriture…';
+    else if (st === 'error') text = 'Erreur';
+    else if (inserted) text = inserted;
+    $('bar-text').textContent = text;
+    $('bar-text').style.color = inserted ? '#BBF7D0' : (st === 'transforming' ? '#E9D5FF' : '');
+    $('bar-mode-text').textContent = label;
+    $('bar-mode').classList.toggle('on', !!t && t.mode !== 'brut');
+    $('bar-mode').hidden = busy || !!inserted || st === 'recording';
+    clearInterval(bar.timer);
+    if (st === 'recording') bar.timer = setInterval(() => { $('bar-text').textContent = duration(Date.now() - bar.since); }, 500);
+  }
+  function showInserted(entry) {
+    bar.inserted = entry.app ? 'Inséré dans ' + entry.app : 'Inséré';
+    renderBar();
+    clearTimeout(bar.insertedTimer);
+    bar.insertedTimer = setTimeout(() => { bar.inserted = null; renderBar(); }, 2500);
+  }
+  $('bar-mic').addEventListener('click', () => send({ cmd: 'dictate' }));
+  $('bar-stop').addEventListener('click', () => send({ cmd: 'dictate' }));
+  $('bar-cancel').addEventListener('click', () => send({ cmd: 'cancel_dictation' }));
+  $('bar-expand').addEventListener('click', () => send({ cmd: 'compact', on: false }));
+  $('bar-mode').addEventListener('click', () => (bar.menu ? closeMenu() : openMenu()));
+  $('bar-main').addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || e.target.closest('button')) return;
+    closeMenu();
+    send({ cmd: 'drag' });
+  });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && bar.menu) closeMenu(); });
+
   function renderSettings() {
     const s = state.settings;
     setAccent(s.accent);
@@ -580,6 +838,8 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
     })));
     $('version').textContent = 'Dictia ' + s.version;
     renderShortcuts();
+    renderTransform();
+    renderMenu();
   }
 
   // ---- clés API ----
@@ -685,6 +945,10 @@ nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;b
         case 'history_add':
           state.history.unshift(msg.entry);
           renderHistory();
+          if (document.body.classList.contains('compact')) showInserted(msg.entry);
+          break;
+        case 'compact':
+          setCompact(msg.on);
           break;
         case 'toast':
           toast(msg.text, msg.error);

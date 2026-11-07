@@ -120,6 +120,30 @@ enabled = true
 [ui]
 # Couleur d'accent de la fenêtre Dictia.
 accent = "#F59E0B"
+
+[transform]
+# Transformation par IA : le texte dicté avec le raccourci ci-dessous est
+# retravaillé (traduit, réécrit…) avant d'être tapé. Le raccourci de dictée
+# habituel tape toujours le texte brut.
+# Raccourci « dicter avec transformation » (vide : désactivé).
+shortcut = "Ctrl+Alt+T"
+# IA utilisée : "openai" ou "mistral" (avec la clé de ce fournisseur).
+provider = "openai"
+openai_model = "gpt-4.1-mini"
+mistral_model = "mistral-small-latest"
+# Mode actif : "brut", "traduire", "reecrire" ou "perso".
+mode = "traduire"
+# Traduction : langue d'arrivée et langues proposées (codes ISO 639-1).
+target_language = "en"
+languages = ["en", "es", "de", "it"]
+# Réécriture : "professionnel", "court", "corriger" ou "amical".
+style = "professionnel"
+# Consigne personnalisée active (son nom) ; les consignes sont listées en
+# [[transform.prompts]], par exemple :
+#   [[transform.prompts]]
+#   name = "E-mail client"
+#   text = "Rédige un e-mail poli et concis, avec vouvoiement."
+custom = ""
 "##;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -133,6 +157,68 @@ pub struct Config {
     pub inject: InjectConfig,
     pub indicator: IndicatorConfig,
     pub ui: UiConfig,
+    pub transform: TransformConfig,
+}
+
+/// Transformation du texte dicté par une IA (traduction, réécriture…).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct TransformConfig {
+    pub shortcut: String,
+    pub provider: String,
+    pub openai_model: String,
+    pub mistral_model: String,
+    pub mode: String,
+    pub target_language: String,
+    pub languages: Vec<String>,
+    pub style: String,
+    pub custom: String,
+    pub prompts: Vec<CustomPrompt>,
+}
+
+impl Default for TransformConfig {
+    fn default() -> Self {
+        Self {
+            shortcut: "Ctrl+Alt+T".into(),
+            provider: "openai".into(),
+            openai_model: "gpt-4.1-mini".into(),
+            mistral_model: "mistral-small-latest".into(),
+            mode: "traduire".into(),
+            target_language: "en".into(),
+            languages: ["en", "es", "de", "it"].map(String::from).to_vec(),
+            style: "professionnel".into(),
+            custom: String::new(),
+            prompts: Vec::new(),
+        }
+    }
+}
+
+/// Consigne personnalisée de transformation.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, serde::Serialize)]
+pub struct CustomPrompt {
+    pub name: String,
+    pub text: String,
+}
+
+impl TransformConfig {
+    /// IA de transformation (OpenAI si la valeur est inconnue ; jamais le
+    /// serveur local, qui ne sert qu'à la transcription).
+    pub fn provider(&self) -> Provider {
+        match Provider::parse(&self.provider) {
+            Some(Provider::Mistral) => Provider::Mistral,
+            _ => Provider::OpenAi,
+        }
+    }
+
+    /// Modèle de l'IA choisie.
+    pub fn model(&self) -> String {
+        let (model, default) = match self.provider() {
+            Provider::Mistral => (&self.mistral_model, "mistral-small-latest"),
+            _ => (&self.openai_model, "gpt-4.1-mini"),
+        };
+        let model = model.trim();
+        if model.is_empty() { default } else { model }.to_owned()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -306,6 +392,7 @@ impl Default for Config {
             inject: InjectConfig::default(),
             indicator: IndicatorConfig::default(),
             ui: UiConfig::default(),
+            transform: TransformConfig::default(),
         }
     }
 }
@@ -554,6 +641,26 @@ mod tests {
     #[test]
     fn default_file_matches_default_struct() {
         assert_eq!(Config::parse(DEFAULT_CONFIG).unwrap(), Config::default());
+    }
+
+    #[test]
+    fn transform_provider_and_model() {
+        let mut t = TransformConfig::default();
+        assert_eq!(
+            (t.provider(), t.model().as_str()),
+            (Provider::OpenAi, "gpt-4.1-mini")
+        );
+        t.provider = "Mistral".into();
+        assert_eq!(t.model(), "mistral-small-latest");
+        t.mistral_model = " mistral-medium-latest ".into();
+        assert_eq!(t.model(), "mistral-medium-latest");
+        // Le serveur local ne sert qu'à la transcription.
+        t.provider = "local".into();
+        assert_eq!(t.provider(), Provider::OpenAi);
+        let cfg =
+            Config::parse("[[transform.prompts]]\nname = \"Mail\"\ntext = \"Poli.\"\n").unwrap();
+        assert_eq!(cfg.transform.prompts[0].name, "Mail");
+        assert_eq!(cfg.transform.shortcut, "Ctrl+Alt+T");
     }
 
     #[test]

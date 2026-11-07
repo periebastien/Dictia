@@ -12,7 +12,7 @@ use tokio::sync::{mpsc, Mutex};
 use crate::audio::capture::{LiveAudio, Microphone};
 use crate::audio::{duration_of, flac, vad, TARGET_RATE};
 use crate::config::Config;
-use crate::dictation::{self, Effect, Phase};
+use crate::dictation::{self, Effect, Phase, MODE_TRANSFORM};
 use crate::history::{self, Entry, Problem};
 use crate::hotkey::Action;
 use crate::inject;
@@ -21,6 +21,7 @@ use crate::metrics::Latencies;
 use crate::platform::{self, WindowHandle};
 use crate::transcription::realtime::{self, RealtimeConfig};
 use crate::transcription::{AudioPayload, Backend, Progress};
+use crate::transform::{self, Transformer};
 use crate::tray::TrayState;
 use crate::vocab::{Vocab, VocabFile};
 
@@ -31,6 +32,8 @@ pub struct Shared {
     pub vocab: Arc<Vocab>,
     pub api_key: Option<String>,
     pub backend: Option<Arc<dyn Backend>>,
+    /// IA de transformation (absente sans clé pour son fournisseur).
+    pub transformer: Option<Arc<Transformer>>,
 }
 
 pub type SharedRef = Arc<RwLock<Shared>>;
@@ -40,6 +43,11 @@ pub enum Event {
     History(Entry),
     /// Une dictée a été tentée sans clé API.
     NeedApiKey,
+    /// Modèles de l'IA de transformation lus chez un fournisseur.
+    TransformModels {
+        provider: &'static str,
+        models: std::result::Result<Vec<String>, String>,
+    },
 }
 
 /// État de la dictée, lu par la boucle principale (icône, indicateur,
@@ -50,6 +58,8 @@ pub struct Status {
     pub mic_level: Arc<AtomicU32>,
     recording: AtomicBool,
     processing: AtomicUsize,
+    /// Dictées dont le texte est en cours de transformation par l'IA.
+    transforming: AtomicUsize,
     error: AtomicBool,
     /// Dernier problème à montrer dans la fenêtre, pas encore lu.
     problem: std::sync::Mutex<Option<Problem>>,
@@ -62,6 +72,7 @@ impl Status {
             mic_level: Arc::new(AtomicU32::new(0)),
             recording: AtomicBool::new(false),
             processing: AtomicUsize::new(0),
+            transforming: AtomicUsize::new(0),
             error: AtomicBool::new(false),
             problem: std::sync::Mutex::new(None),
         }
@@ -77,6 +88,20 @@ impl Status {
         } else {
             TrayState::Idle
         }
+    }
+
+    /// Vrai pendant que l'IA retravaille un texte.
+    pub fn is_transforming(&self) -> bool {
+        self.transforming.load(Ordering::SeqCst) > 0
+    }
+
+    fn set_transforming(&self, on: bool) {
+        if on {
+            self.transforming.fetch_add(1, Ordering::SeqCst);
+        } else {
+            self.transforming.fetch_sub(1, Ordering::SeqCst);
+        }
+        self.notify();
     }
 
     pub fn mic_rms(&self) -> f32 {
@@ -141,6 +166,7 @@ struct Session {
     started: Instant,
     mode: &'static str,
     live: Option<Live>,
+    transform: Option<TransformPlan>,
 }
 
 /// Dictée enregistrée, à transcrire.
@@ -151,6 +177,14 @@ struct Capture {
     stopped: Instant,
     mode: &'static str,
     live: Option<Live>,
+    transform: Option<TransformPlan>,
+}
+
+/// Transformation prévue pour une dictée (figée à son début).
+struct TransformPlan {
+    transformer: Arc<Transformer>,
+    system: String,
+    label: String,
 }
 
 /// Transcription en direct qui accompagne une dictée.
@@ -317,6 +351,12 @@ impl Controller {
                     deadline = None;
                     log::debug!("nouvel appui pendant le prolongement : la dictée continue");
                 }
+                Effect::Cancel => {
+                    deadline = None;
+                    if let Some(s) = session.take() {
+                        self.cancel(s);
+                    }
+                }
                 Effect::Nothing => {}
             }
         }
@@ -427,13 +467,22 @@ impl Controller {
             self.status.notify();
             return None;
         };
-        let target = platform::foreground_window();
+        let target = platform::typing_target();
+        let transform = (mode == MODE_TRANSFORM)
+            .then(|| self.transform_plan())
+            .flatten();
+        if let Some(plan) = &transform {
+            let transformer = Arc::clone(&plan.transformer);
+            tokio::spawn(async move { transformer.warm_up().await });
+        }
         let (live, live_audio) = match realtime {
             Some(config) => {
                 let (tx, rx) = mpsc::unbounded_channel();
                 let rate = realtime::rate(config.dialect);
+                // Le texte transformé n'est connu qu'à la fin : pas de frappe
+                // en direct du texte brut.
                 let typer = self.shared.read().ok().and_then(|s| {
-                    s.config.inject.live_typing.then(|| {
+                    (s.config.inject.live_typing && transform.is_none()).then(|| {
                         Typer::spawn(target, Arc::clone(&s.vocab), Arc::clone(&self.inject_lock))
                     })
                 });
@@ -453,12 +502,16 @@ impl Controller {
                 mic.begin(live_audio);
                 self.status.set_recording(true);
                 log::info!(
-                    "enregistrement démarré ({mode}, moteur {})",
+                    "enregistrement démarré ({mode}, moteur {}{})",
                     if live.is_some() {
                         "realtime"
                     } else {
                         "standard"
-                    }
+                    },
+                    transform
+                        .as_ref()
+                        .map(|t| format!(", transformation {}", t.label))
+                        .unwrap_or_default()
                 );
                 Some(Session {
                     mic,
@@ -466,6 +519,7 @@ impl Controller {
                     started,
                     mode,
                     live,
+                    transform,
                 })
             }
             Err(e) => {
@@ -476,6 +530,45 @@ impl Controller {
                 None
             }
         }
+    }
+
+    /// Transformation du mode actif ; aucune en mode brut. Sans clé pour
+    /// l'IA choisie, la dictée reste brute et le problème est signalé.
+    fn transform_plan(&self) -> Option<TransformPlan> {
+        let shared = self.shared.read().ok()?;
+        let mode = transform::Mode::active(&shared.config.transform);
+        let system = mode.system_prompt(shared.vocab.terms())?;
+        let Some(transformer) = shared.transformer.clone() else {
+            self.status.report(format!(
+                "Transformation impossible : ajoutez la clé {} dans Réglages. Texte tapé tel que dicté.",
+                shared.config.transform.provider().name()
+            ));
+            return None;
+        };
+        Some(TransformPlan {
+            transformer,
+            system,
+            label: mode.label(),
+        })
+    }
+
+    /// Abandon : rien n'est transcrit ni tapé (la frappe en direct éventuelle
+    /// est effacée).
+    fn cancel(&self, session: Session) {
+        self.status.set_recording(false);
+        let _ = session.mic.end();
+        drop(session.mic);
+        if let Some(mut live) = session.live {
+            live.task.abort();
+            if let Some(typer) = live.typer.take() {
+                tokio::spawn(async move {
+                    if let Err(e) = typer.finish(TyperMsg::Erase).await {
+                        log::warn!("effacement de la frappe en direct : {e:#}");
+                    }
+                });
+            }
+        }
+        log::info!("dictée annulée");
     }
 
     /// Fin : arrête le micro et lance le traitement en tâche de fond,
@@ -513,6 +606,7 @@ impl Controller {
                 stopped,
                 mode: session.mode,
                 live: session.live,
+                transform: session.transform,
             };
             if let Err(e) = this.process(capture).await {
                 this.status.fail("dictée", &format!("{e:#}"));
@@ -564,7 +658,7 @@ impl Controller {
         })
         .await?;
         let mut live = capture.live;
-        let typer = live.as_mut().and_then(|l| l.typer.take());
+        let mut typer = live.as_mut().and_then(|l| l.typer.take());
         let Some(speech) = speech else {
             if let Some(live) = live {
                 live.task.abort();
@@ -576,6 +670,8 @@ impl Controller {
             return Ok(());
         };
         lat.speech = duration_of(speech.len(), TARGET_RATE);
+        // Texte dicté, gardé dans l'historique quand l'IA l'a transformé.
+        let mut original = String::new();
 
         let text = match live {
             Some(live) => match finish_live(live, stopped, &mut lat).await {
@@ -611,9 +707,42 @@ impl Controller {
         };
         lat.done = stopped.elapsed();
 
+        let target = capture.target;
         let text = if vocab.is_prompt_echo(&text) {
             log::info!("transcription ignorée : le modèle a recopié le prompt (pas de parole ?)");
             String::new()
+        } else if let Some(plan) = capture
+            .transform
+            .as_ref()
+            .filter(|_| !text.trim().is_empty())
+        {
+            let raw = vocab.apply(&text);
+            lat.model = format!("{}+{}", lat.model, plan.transformer.model);
+            // Frappe au fil de la réponse de l'IA.
+            let streaming = Typer::spawn(target, Arc::clone(&vocab), Arc::clone(&self.inject_lock));
+            let to_typer = streaming.tx.clone();
+            typer = Some(streaming);
+            self.status.set_transforming(true);
+            let result = plan
+                .transformer
+                .run(&plan.system, raw.trim(), |delta| {
+                    let _ = to_typer.send(TyperMsg::Delta(delta.to_owned()));
+                })
+                .await;
+            self.status.set_transforming(false);
+            match result {
+                Ok(out) => {
+                    original = raw.trim().to_owned();
+                    inject::prepare_text(&vocab.apply(&out), config.inject.trailing_space)
+                }
+                Err(e) => {
+                    log::warn!("transformation impossible, texte brut tapé : {e:#}");
+                    self.status.report(format!(
+                        "Transformation impossible, texte tapé tel que dicté : {e:#}"
+                    ));
+                    inject::prepare_text(&raw, config.inject.trailing_space)
+                }
+            }
         } else {
             // Avant les remplacements : la ponctuation dictée (« point virgule »)
             // reste.
@@ -622,7 +751,6 @@ impl Controller {
         };
         lat.chars = text.chars().count();
 
-        let target = capture.target;
         let typing = Instant::now();
         match typer {
             // Frappe en direct : il ne reste qu'à corriger ou compléter.
@@ -673,6 +801,12 @@ impl Controller {
             app,
             duration_ms: capture.recording.as_millis() as u64,
             mode: capture.mode.to_owned(),
+            transform: if original.is_empty() {
+                String::new()
+            } else {
+                capture.transform.map(|t| t.label).unwrap_or_default()
+            },
+            original,
         };
         if let Err(e) = history::append(&self.history_path, &entry) {
             log::warn!("historique non enregistré : {e}");

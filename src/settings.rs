@@ -8,10 +8,11 @@ use serde::{Deserialize, Serialize};
 use toml_edit::{value, Array, ArrayOfTables, DocumentMut, Item, Table};
 
 use crate::config::{
-    Config, HotkeyConfig, Provider, ENGINE_REALTIME, ENGINE_STANDARD, LANGUAGE_AUTO,
+    Config, CustomPrompt, HotkeyConfig, Provider, ENGINE_REALTIME, ENGINE_STANDARD, LANGUAGE_AUTO,
 };
 use crate::hotkey;
 use crate::transcription::realtime;
+use crate::transform;
 use crate::vocab::VocabFile;
 
 /// Modèles suggérés pour chaque fournisseur (tout autre nom reste accepté :
@@ -125,6 +126,30 @@ pub enum Change {
     Accent {
         value: String,
     },
+    /// Raccourci « dicter avec transformation » (vide : désactivé).
+    TransformShortcut {
+        value: String,
+    },
+    /// IA de transformation : `openai` ou `mistral`.
+    TransformProvider {
+        value: String,
+    },
+    /// Modèle de l'IA de transformation choisie.
+    TransformModel {
+        value: String,
+    },
+    /// Mode actif (`brut`, `traduire:en`, `reecrire:court`, `perso:<nom>`).
+    TransformMode {
+        value: String,
+    },
+    /// Langues proposées pour la traduction.
+    TransformLanguages {
+        value: Vec<String>,
+    },
+    /// Consignes personnalisées.
+    TransformPrompts {
+        value: Vec<CustomPrompt>,
+    },
 }
 
 /// Vocabulaire tel que l'interface l'édite.
@@ -232,7 +257,7 @@ pub fn apply_config_change(text: &str, current: &Config, change: &Change) -> Res
                 hk.push_to_talk = v.trim().to_owned();
                 "push_to_talk"
             };
-            hotkey::bindings(&hk)?;
+            hotkey::bindings(&hk, &current.transform.shortcut)?;
             table(&mut doc, "hotkey")[key] = value(v.trim());
         }
         Change::Indicator { value: v } => table(&mut doc, "indicator")["enabled"] = value(*v),
@@ -259,6 +284,82 @@ pub fn apply_config_change(text: &str, current: &Config, change: &Change) -> Res
                 bail!("couleur inconnue : {v}");
             }
             table(&mut doc, "ui")["accent"] = value(v.as_str());
+        }
+        Change::TransformShortcut { value: v } => {
+            hotkey::bindings(&current.hotkey, v)?;
+            table(&mut doc, "transform")["shortcut"] = value(v.trim());
+        }
+        Change::TransformProvider { value: v } => {
+            let p = parse_provider(v)?;
+            if p == Provider::Local {
+                bail!("le serveur local ne sert qu'à la transcription");
+            }
+            table(&mut doc, "transform")["provider"] = value(p.id());
+        }
+        Change::TransformModel { value: v } => {
+            let v = v.trim();
+            if v.is_empty() || v.contains(char::is_whitespace) {
+                bail!("nom de modèle invalide : {v:?}");
+            }
+            let key = match current.transform.provider() {
+                Provider::Mistral => "mistral_model",
+                _ => "openai_model",
+            };
+            table(&mut doc, "transform")[key] = value(v);
+        }
+        Change::TransformMode { value: v } => {
+            let (mode, lang, style, custom) = transform::parse_mode_id(v)?;
+            if let Some(name) = &custom {
+                if !current.transform.prompts.iter().any(|p| &p.name == name) {
+                    bail!("consigne inconnue : {name}");
+                }
+            }
+            let t = table(&mut doc, "transform");
+            t["mode"] = value(mode);
+            if let Some(lang) = lang {
+                t["target_language"] = value(lang);
+            }
+            if let Some(style) = style {
+                t["style"] = value(style);
+            }
+            if let Some(name) = custom {
+                t["custom"] = value(name);
+            }
+        }
+        Change::TransformLanguages { value: v } => {
+            let mut langs = Array::new();
+            for code in v.iter().map(|c| c.trim().to_ascii_lowercase()) {
+                if !(2..=3).contains(&code.len()) || !code.chars().all(|c| c.is_ascii_lowercase()) {
+                    bail!("langue invalide : {code:?}");
+                }
+                if !langs.iter().any(|l| l.as_str() == Some(code.as_str())) {
+                    langs.push(code);
+                }
+            }
+            table(&mut doc, "transform")["languages"] = value(langs);
+        }
+        Change::TransformPrompts { value: v } => {
+            let mut prompts = ArrayOfTables::new();
+            let mut names: Vec<&str> = Vec::new();
+            for p in v {
+                let (name, text) = (p.name.trim(), p.text.trim());
+                if name.is_empty() || text.is_empty() {
+                    bail!("une consigne a besoin d'un nom et d'un texte");
+                }
+                if names.contains(&name) {
+                    bail!("deux consignes portent le nom « {name} »");
+                }
+                names.push(name);
+                let mut t = Table::new();
+                t["name"] = value(name);
+                t["text"] = value(text);
+                prompts.push(t);
+            }
+            let t = table(&mut doc, "transform");
+            t.remove("prompts");
+            if !prompts.is_empty() {
+                t["prompts"] = Item::ArrayOfTables(prompts);
+            }
         }
     }
     Ok(doc.to_string())
@@ -348,6 +449,85 @@ mod tests {
             "commentaires perdus"
         );
         Config::parse(&text)
+    }
+
+    #[test]
+    fn transform_changes() {
+        let c = |change| apply(change).unwrap().transform;
+        assert_eq!(
+            c(Change::TransformShortcut {
+                value: " Ctrl+Alt+Y ".into()
+            })
+            .shortcut,
+            "Ctrl+Alt+Y"
+        );
+        assert!(apply(Change::TransformShortcut {
+            value: "Ctrl+Alt+Espace".into()
+        })
+        .is_err());
+        assert_eq!(
+            c(Change::TransformShortcut {
+                value: String::new()
+            })
+            .shortcut,
+            ""
+        );
+        assert_eq!(
+            c(Change::TransformProvider {
+                value: "mistral".into()
+            })
+            .provider,
+            "mistral"
+        );
+        assert!(apply(Change::TransformProvider {
+            value: "local".into()
+        })
+        .is_err());
+        assert_eq!(
+            c(Change::TransformModel {
+                value: "gpt-4.1".into()
+            })
+            .openai_model,
+            "gpt-4.1"
+        );
+        let t = c(Change::TransformMode {
+            value: "traduire:es".into(),
+        });
+        assert_eq!(
+            (t.mode.as_str(), t.target_language.as_str()),
+            ("traduire", "es")
+        );
+        let t = c(Change::TransformMode {
+            value: "reecrire:court".into(),
+        });
+        assert_eq!((t.mode.as_str(), t.style.as_str()), ("reecrire", "court"));
+        assert!(apply(Change::TransformMode {
+            value: "perso:Inconnue".into()
+        })
+        .is_err());
+        assert_eq!(
+            c(Change::TransformLanguages {
+                value: vec!["EN".into(), "ja".into(), "en".into()]
+            })
+            .languages,
+            ["en", "ja"]
+        );
+        let prompt = CustomPrompt {
+            name: "Mail".into(),
+            text: "Poli.".into(),
+        };
+        let t = c(Change::TransformPrompts {
+            value: vec![prompt.clone()],
+        });
+        assert_eq!(t.prompts, std::slice::from_ref(&prompt));
+        assert!(apply(Change::TransformPrompts {
+            value: vec![prompt.clone(), prompt]
+        })
+        .is_err());
+        // Plus de consigne : la section n'en garde aucune.
+        assert!(c(Change::TransformPrompts { value: vec![] })
+            .prompts
+            .is_empty());
     }
 
     #[test]

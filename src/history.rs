@@ -21,8 +21,14 @@ pub struct Entry {
     pub app: String,
     /// Durée de l'enregistrement.
     pub duration_ms: u64,
-    /// « Bascule » ou « Maintien ».
+    /// « Bascule », « Maintien » ou « Transformation ».
     pub mode: String,
+    /// Texte dicté avant la transformation par l'IA (vide sinon).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub original: String,
+    /// Transformation appliquée (« → Anglais », « Pro »…), vide sinon.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub transform: String,
 }
 
 /// Problème survenu pendant une dictée, affiché dans la fenêtre pour ne pas
@@ -113,7 +119,25 @@ mod tests {
             app: "Outlook".into(),
             duration_ms: 1_000,
             mode: "Bascule".into(),
+            original: String::new(),
+            transform: String::new(),
         }
+    }
+
+    #[test]
+    fn transformed_entries_keep_the_original() {
+        let mut e = entry(3, "Hello");
+        e.original = "Bonjour".into();
+        e.transform = "→ Anglais".into();
+        let line = serde_json::to_string(&e).unwrap();
+        assert_eq!(serde_json::from_str::<Entry>(&line).unwrap(), e);
+        // Une dictée brute n'écrit pas ces champs ; une ligne ancienne se relit.
+        let plain = serde_json::to_string(&entry(4, "Salut")).unwrap();
+        assert!(!plain.contains("original"), "{plain}");
+        assert_eq!(
+            serde_json::from_str::<Entry>(&plain).unwrap(),
+            entry(4, "Salut")
+        );
     }
 
     #[test]

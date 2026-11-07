@@ -5,6 +5,7 @@
 //! - Runtime tokio : [`Controller`] qui enchaîne capture → transcription →
 //!   frappe.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc as std_mpsc, Arc, RwLock};
@@ -22,7 +23,7 @@ use crate::audio;
 use crate::config::{self, Config, CONFIG_FILE};
 use crate::controller::{Controller, Event, Shared, SharedRef, Status};
 use crate::history::{self, Entry, Problem, HISTORY_FILE, MAX_ENTRIES};
-use crate::hotkey::{self, Registration};
+use crate::hotkey::{self, Action, Registration};
 use crate::inject;
 use crate::metrics::{self, METRICS_FILE};
 use crate::overlay::{self, Animation};
@@ -31,6 +32,7 @@ use crate::settings::{self, Change, VocabEdit};
 use crate::stats::{self, ModelStats};
 use crate::transcription::standard::StandardBackend;
 use crate::transcription::Backend;
+use crate::transform::Transformer;
 use crate::tray::{Tray, TrayState, MENU_OPEN_CONFIG, MENU_OPEN_UI, MENU_QUIT};
 use crate::ui::window::UiWindow;
 use crate::ui::{self, Command, Message, SettingsView, Tab};
@@ -77,6 +79,7 @@ pub fn run() -> Result<()> {
         vocab: Arc::new(vocab),
         api_key,
         backend,
+        transformer: make_transformer(&config),
     }));
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -115,11 +118,14 @@ pub fn run() -> Result<()> {
         }));
     }
 
+    let page_actions = actions_tx.clone();
     let mut hotkeys = Registration::new(&[], move |action| {
         let _ = actions_tx.send(action);
     })?;
     let mut startup_tab = needs_key.then_some(Tab::Reglages);
-    match hotkey::bindings(&config.hotkey).and_then(|b| hotkeys.replace(&b)) {
+    match hotkey::bindings(&config.hotkey, &config.transform.shortcut)
+        .and_then(|b| hotkeys.replace(&b))
+    {
         Ok(()) => log::info!("prêt : {} pour dicter", hotkey::describe(&config.hotkey)),
         Err(e) => {
             log::error!("{e:#}");
@@ -130,6 +136,7 @@ pub fn run() -> Result<()> {
         }
     }
 
+    let app_events = events_tx.clone();
     let controller = Controller {
         shared: Arc::clone(&shared),
         status: Arc::clone(&status),
@@ -160,7 +167,13 @@ pub fn run() -> Result<()> {
         mic_control,
         microphones: Vec::new(),
         problem: None,
+        actions: page_actions,
+        runtime: runtime.handle().clone(),
+        events_tx: app_events,
+        transform_models: HashMap::new(),
+        compact: false,
     };
+    platform::watch_foreground();
     if let Some(tab) = startup_tab {
         app.open_ui(Some(tab));
     }
@@ -190,6 +203,17 @@ fn make_backend(config: &Config) -> Result<BackendAndKey> {
     Ok((Some(backend), endpoint.api_key))
 }
 
+/// IA de transformation, si sa clé est connue.
+fn make_transformer(config: &Config) -> Option<Arc<Transformer>> {
+    match Transformer::from_config(config, config::process_env) {
+        Ok(t) => t.map(Arc::new),
+        Err(e) => {
+            log::warn!("IA de transformation indisponible : {e:#}");
+            None
+        }
+    }
+}
+
 /// État du thread principal.
 struct MainLoop {
     dir: PathBuf,
@@ -203,7 +227,7 @@ struct MainLoop {
     commands_rx: std_mpsc::Receiver<Command>,
     events_rx: std_mpsc::Receiver<Event>,
     history: Vec<Entry>,
-    shown_status: Option<TrayState>,
+    shown_status: Option<(TrayState, bool)>,
     /// Onglet à afficher quand la page sera prête.
     pending_tab: Option<Tab>,
     /// Ouvre ou ferme le micro gardé ouvert quand les réglages changent.
@@ -212,6 +236,14 @@ struct MainLoop {
     microphones: Vec<String>,
     /// Dernier problème, montré en haut de l'historique.
     problem: Option<Problem>,
+    /// Ordres de dictée venus de la barre réduite.
+    actions: mpsc::UnboundedSender<Action>,
+    runtime: tokio::runtime::Handle,
+    events_tx: std_mpsc::Sender<Event>,
+    /// Modèles de l'IA de transformation lus chez chaque fournisseur.
+    transform_models: HashMap<&'static str, Vec<String>>,
+    /// Fenêtre réduite en barre.
+    compact: bool,
 }
 
 impl MainLoop {
@@ -227,16 +259,20 @@ impl MainLoop {
                 problem: Some(problem),
             });
         }
-        if self.shown_status != Some(state) {
-            self.shown_status = Some(state);
+        let shown = (state, self.status.is_transforming());
+        if self.shown_status != Some(shown) {
+            self.shown_status = Some(shown);
             self.send(&Message::Status {
-                status: ui::status_name(state),
+                status: ui::status_name(shown.0, shown.1),
             });
         }
 
         match platform::take_ui_request() {
             Some(UiRequest::Show) => self.open_ui(None),
-            Some(UiRequest::Close) => self.ui = None,
+            Some(UiRequest::Close) => {
+                self.ui = None;
+                self.compact = false;
+            }
             None => {}
         }
 
@@ -256,6 +292,17 @@ impl MainLoop {
                     self.open_ui(Some(Tab::Reglages));
                     self.send(&Message::error("Ajoutez votre clé API pour dicter"));
                 }
+                Event::TransformModels { provider, models } => match models {
+                    Ok(models) => {
+                        self.transform_models.insert(provider, models);
+                        self.send(&Message::Settings {
+                            settings: self.settings_view(),
+                        });
+                    }
+                    Err(e) => self.send(&Message::error(format!(
+                        "Liste des modèles indisponible : {e}"
+                    ))),
+                },
             }
         }
 
@@ -294,12 +341,16 @@ impl MainLoop {
 
     fn settings_view(&self) -> SettingsView {
         let shared = self.shared.read().expect("réglages");
-        SettingsView::new(
+        let mut view = SettingsView::new(
             &shared.config,
             config::process_env,
             platform::run_at_startup(),
             &self.microphones,
-        )
+        );
+        if let Some(models) = self.transform_models.get(view.transform.provider) {
+            view.transform.set_models(models);
+        }
+        view
     }
 
     /// Statistiques de latence à partir de `latences.csv`.
@@ -318,7 +369,7 @@ impl MainLoop {
             Command::Ready => {
                 self.microphones = audio::capture::input_devices();
                 let message = Message::Snapshot {
-                    status: ui::status_name(self.status.get()),
+                    status: ui::status_name(self.status.get(), self.status.is_transforming()),
                     settings: self.settings_view(),
                     vocab: self.vocab_view(),
                     history: self.history.clone(),
@@ -338,7 +389,10 @@ impl MainLoop {
                     ui.minimize();
                 }
             }
-            Command::Close => self.ui = None,
+            Command::Close => {
+                self.ui = None;
+                self.compact = false;
+            }
             Command::Change { change } => match self.apply_change(&change) {
                 Ok(()) => {
                     self.send(&Message::Settings {
@@ -403,6 +457,48 @@ impl MainLoop {
             Command::Capture { active } => self.hotkeys.suspend(active),
             Command::OpenFolder => open_folder(&self.dir),
             Command::DismissProblem => self.problem = None,
+            Command::Compact { on } => {
+                if let Some(ui) = &self.ui {
+                    ui.set_compact(on, None);
+                    self.compact = on;
+                    self.send(&Message::Compact { on });
+                }
+            }
+            // Ignoré hors de la barre : la fenêtre normale garde sa taille.
+            Command::CompactMenu { open, height } if self.compact => {
+                if let Some(ui) = &self.ui {
+                    ui.set_compact(true, open.then_some(height));
+                }
+            }
+            Command::CompactMenu { .. } => {}
+            Command::Dictate => {
+                let _ = self.actions.send(Action::ToggleTransform);
+            }
+            Command::CancelDictation => {
+                let _ = self.actions.send(Action::Cancel);
+            }
+            Command::FetchModels => {
+                let transformer = self.shared.read().expect("réglages").transformer.clone();
+                let Some(transformer) = transformer else {
+                    self.send(&Message::error(
+                        "Ajoutez d'abord la clé API de ce fournisseur",
+                    ));
+                    return;
+                };
+                let events = self.events_tx.clone();
+                let status = Arc::clone(&self.status);
+                self.runtime.spawn(async move {
+                    let models = transformer
+                        .list_models()
+                        .await
+                        .map_err(|e| format!("{e:#}"));
+                    let _ = events.send(Event::TransformModels {
+                        provider: transformer.provider.id(),
+                        models,
+                    });
+                    status.notify();
+                });
+            }
             Command::ResetStats => {
                 match metrics::archive_csv(&self.dir.join(METRICS_FILE)) {
                     Ok(()) => self.send(&Message::toast("Statistiques réinitialisées")),
@@ -426,8 +522,12 @@ impl MainLoop {
         let config = Config::parse(&new_text)?;
         fs::write(&path, &new_text).with_context(|| format!("écriture de {}", path.display()))?;
 
-        if matches!(change, Change::Shortcut { .. } | Change::PushToTalk { .. }) {
-            if let Err(e) = hotkey::bindings(&config.hotkey).and_then(|b| self.hotkeys.replace(&b))
+        if matches!(
+            change,
+            Change::Shortcut { .. } | Change::PushToTalk { .. } | Change::TransformShortcut { .. }
+        ) {
+            if let Err(e) = hotkey::bindings(&config.hotkey, &config.transform.shortcut)
+                .and_then(|b| self.hotkeys.replace(&b))
             {
                 let _ = fs::write(&path, &old_text);
                 return Err(e);
@@ -453,6 +553,15 @@ impl MainLoop {
             let (backend, api_key) = make_backend(&config)?;
             shared.backend = backend;
             shared.api_key = api_key;
+        }
+        if matches!(
+            change,
+            Change::ProviderKey { .. }
+                | Change::ProviderUrl { .. }
+                | Change::TransformProvider { .. }
+                | Change::TransformModel { .. }
+        ) {
+            shared.transformer = make_transformer(&config);
         }
         shared.config = config;
         drop(shared);

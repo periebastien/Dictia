@@ -25,11 +25,15 @@ pub enum Effect {
     StopAfter(Duration),
     /// Annule un arrêt programmé : la dictée continue.
     KeepRecording,
+    /// Abandonne la dictée sans rien taper.
+    Cancel,
     Nothing,
 }
 
 pub const MODE_TOGGLE: &str = "Bascule";
 pub const MODE_HOLD: &str = "Maintien";
+/// Dictée retravaillée par l'IA (raccourci ou barre réduite).
+pub const MODE_TRANSFORM: &str = "Transformation";
 
 /// Réaction à une action du raccourci.
 pub fn on_action(phase: Phase, action: Action, tail: Duration) -> (Phase, Effect) {
@@ -37,10 +41,12 @@ pub fn on_action(phase: Phase, action: Action, tail: Duration) -> (Phase, Effect
     use Phase::*;
     match (phase, action) {
         (Idle, Toggle) => (Recording, Effect::Start(MODE_TOGGLE)),
+        (Idle, ToggleTransform) => (Recording, Effect::Start(MODE_TRANSFORM)),
         (Idle, Start) => (Recording, Effect::Start(MODE_HOLD)),
-        (Idle, Stop) => (Idle, Effect::Nothing),
+        (Idle, Stop | Cancel) => (Idle, Effect::Nothing),
+        (Recording | Ending, Cancel) => (Idle, Effect::Cancel),
         // Un second appui en mode bascule est délibéré : arrêt immédiat.
-        (Recording | Ending, Toggle) => (Idle, Effect::Stop),
+        (Recording | Ending, Toggle | ToggleTransform) => (Idle, Effect::Stop),
         (Recording, Stop) if tail.is_zero() => (Idle, Effect::Stop),
         (Recording, Stop) => (Ending, Effect::StopAfter(tail)),
         (Recording, Start) => (Recording, Effect::Nothing),
@@ -109,6 +115,25 @@ mod tests {
         assert_eq!(
             on_action(Phase::Ending, Action::Toggle, TAIL),
             (Phase::Idle, Effect::Stop)
+        );
+    }
+
+    #[test]
+    fn transform_toggle_and_cancel() {
+        let (p, e) = on_action(Phase::Idle, Action::ToggleTransform, TAIL);
+        assert_eq!((p, e), (Phase::Recording, Effect::Start(MODE_TRANSFORM)));
+        // L'un ou l'autre raccourci arrête la dictée en cours.
+        assert_eq!(
+            on_action(p, Action::Toggle, TAIL),
+            (Phase::Idle, Effect::Stop)
+        );
+        assert_eq!(
+            on_action(Phase::Ending, Action::Cancel, TAIL),
+            (Phase::Idle, Effect::Cancel)
+        );
+        assert_eq!(
+            on_action(Phase::Idle, Action::Cancel, TAIL),
+            (Phase::Idle, Effect::Nothing)
         );
     }
 

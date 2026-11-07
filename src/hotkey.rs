@@ -43,6 +43,8 @@ pub enum Mode {
     Toggle,
     /// Enregistre tant que le raccourci est maintenu.
     PushToTalk,
+    /// Bascule, texte retravaillé par l'IA de transformation.
+    Transform,
 }
 
 /// Ordre transmis au contrôleur de dictée.
@@ -51,18 +53,30 @@ pub enum Action {
     Toggle,
     Start,
     Stop,
+    /// Bascule d'une dictée avec transformation.
+    ToggleTransform,
+    /// Abandonne la dictée en cours (rien n'est tapé).
+    Cancel,
 }
 
-/// Raccourcis actifs d'après la configuration (le push-to-talk est
-/// facultatif). Refuse deux fois le même raccourci.
-pub fn bindings(cfg: &HotkeyConfig) -> Result<Vec<(String, Mode)>> {
+/// Raccourcis actifs d'après la configuration (push-to-talk et
+/// transformation facultatifs). Refuse deux fois le même raccourci.
+pub fn bindings(cfg: &HotkeyConfig, transform: &str) -> Result<Vec<(String, Mode)>> {
     let mut out = vec![(cfg.shortcut.trim().to_owned(), Mode::Toggle)];
-    let ptt = cfg.push_to_talk.trim();
-    if !ptt.is_empty() {
-        if normalize(ptt)? == normalize(&cfg.shortcut)? {
-            bail!("shortcut et push_to_talk doivent être deux raccourcis différents ({ptt})");
+    for (shortcut, mode) in [
+        (cfg.push_to_talk.trim(), Mode::PushToTalk),
+        (transform.trim(), Mode::Transform),
+    ] {
+        if shortcut.is_empty() {
+            continue;
         }
-        out.push((ptt.to_owned(), Mode::PushToTalk));
+        let normalized = normalize(shortcut)?;
+        for (other, _) in &out {
+            if normalize(other)? == normalized {
+                bail!("le raccourci {shortcut} est déjà utilisé par Dictia");
+            }
+        }
+        out.push((shortcut.to_owned(), mode));
     }
     Ok(out)
 }
@@ -100,6 +114,7 @@ impl Binding {
         Some(match self.mode {
             Mode::Toggle => Action::Toggle,
             Mode::PushToTalk => Action::Start,
+            Mode::Transform => Action::ToggleTransform,
         })
     }
 
@@ -281,8 +296,15 @@ mod tests {
     }
 
     #[test]
+    fn transform_shortcut_toggles() {
+        let b = Binding::new(Mode::Transform);
+        assert_eq!(b.on_pressed(), Some(Action::ToggleTransform));
+        assert_eq!(b.on_released(), None);
+    }
+
+    #[test]
     fn bindings_from_config() {
-        let both = bindings(&cfg("Ctrl+Alt+Espace", " Alt+Maj+Espace ")).unwrap();
+        let both = bindings(&cfg("Ctrl+Alt+Espace", " Alt+Maj+Espace "), "").unwrap();
         assert_eq!(
             both,
             [
@@ -290,8 +312,12 @@ mod tests {
                 ("Alt+Maj+Espace".to_owned(), Mode::PushToTalk)
             ]
         );
-        assert_eq!(bindings(&cfg("Ctrl+Alt+Espace", "")).unwrap().len(), 1);
-        assert!(bindings(&cfg("Ctrl+Alt+Espace", "ctrl+alt+space")).is_err());
+        assert_eq!(bindings(&cfg("Ctrl+Alt+Espace", ""), "").unwrap().len(), 1);
+        assert!(bindings(&cfg("Ctrl+Alt+Espace", "ctrl+alt+space"), "").is_err());
+        let all = bindings(&cfg("Ctrl+Alt+Espace", "Alt+Maj+Espace"), "Ctrl+Alt+T").unwrap();
+        assert_eq!(all[2], ("Ctrl+Alt+T".to_owned(), Mode::Transform));
+        assert!(bindings(&cfg("Ctrl+Alt+Espace", ""), "Ctrl+Alt+Espace").is_err());
+        assert!(bindings(&cfg("Ctrl+Alt+Espace", "Ctrl+Alt+T"), "ctrl+alt+t").is_err());
     }
 
     #[test]

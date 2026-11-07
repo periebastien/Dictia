@@ -9,7 +9,7 @@ pub mod window;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{Config, Provider, ENGINE_REALTIME, ENGINE_STANDARD};
+use crate::config::{Config, CustomPrompt, Provider, ENGINE_REALTIME, ENGINE_STANDARD};
 use crate::history::{Entry, Problem};
 use crate::settings::{
     mask_api_key, suggested_models, Change, VocabEdit, ACCENTS, LANGUAGES, RELEASE_TAILS,
@@ -17,6 +17,7 @@ use crate::settings::{
 };
 use crate::stats::ModelStats;
 use crate::transcription::realtime;
+use crate::transform;
 use crate::tray::TrayState;
 
 /// Page de l'interface, embarquée dans l'exécutable.
@@ -24,6 +25,10 @@ pub const HTML: &str = include_str!("index.html");
 /// Taille de la fenêtre (px logiques, comme les maquettes).
 pub const WIDTH: u32 = 380;
 pub const HEIGHT: u32 = 560;
+/// Barre réduite (px logiques), et hauteur maximale menu des modes ouvert.
+pub const BAR_WIDTH: u32 = 260;
+pub const BAR_HEIGHT: u32 = 44;
+pub const BAR_MENU_MAX_HEIGHT: u32 = 520;
 
 /// Ordre envoyé par la page.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -60,6 +65,23 @@ pub enum Command {
     DismissProblem,
     /// Remise à zéro des statistiques (confirmée dans la page).
     ResetStats,
+    /// Passe en barre réduite au premier plan, ou revient à la fenêtre.
+    Compact {
+        on: bool,
+    },
+    /// Menu des modes de la barre ouvert ou fermé : la fenêtre prend
+    /// `height` px logiques de haut.
+    CompactMenu {
+        open: bool,
+        #[serde(default)]
+        height: u32,
+    },
+    /// Bouton micro de la barre : dicter avec le mode actif (ou arrêter).
+    Dictate,
+    /// Abandonne la dictée en cours.
+    CancelDictation,
+    /// Lit chez le fournisseur les modèles de l'IA de transformation.
+    FetchModels,
 }
 
 impl Command {
@@ -108,6 +130,7 @@ pub struct SettingsView {
     pub start_with_windows: bool,
     pub accent: String,
     pub accents: Vec<AccentView>,
+    pub transform: TransformView,
     pub version: &'static str,
 }
 
@@ -134,6 +157,85 @@ fn language_views(current: &str) -> Vec<LanguageView> {
         });
     }
     views
+}
+
+/// Réglages de la transformation par IA.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TransformView {
+    pub shortcut: String,
+    /// `openai` ou `mistral`.
+    pub provider: &'static str,
+    /// Clé connue pour l'IA choisie.
+    pub ready: bool,
+    pub model: String,
+    /// Modèles proposés (lus chez le fournisseur quand c'est possible).
+    pub models: Vec<String>,
+    /// Mode actif (`brut`, `traduire:en`…) et son étiquette.
+    pub mode: String,
+    pub label: String,
+    pub languages: Vec<LanguageView>,
+    /// Toutes les langues qu'on peut ajouter.
+    pub all_languages: Vec<LanguageView>,
+    pub styles: Vec<StyleView>,
+    pub prompts: Vec<CustomPrompt>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct StyleView {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub label: &'static str,
+}
+
+impl TransformView {
+    fn new(config: &Config, env: impl Fn(&str) -> Option<String>) -> Self {
+        let t = &config.transform;
+        let provider = t.provider();
+        let mode = transform::Mode::active(t);
+        let lang_view = |code: &str| LanguageView {
+            code: code.to_owned(),
+            name: transform::language_name(code),
+        };
+        let mut model_list: Vec<String> = transform::suggested_models(provider)
+            .iter()
+            .map(|m| (*m).to_owned())
+            .collect();
+        let model = t.model();
+        if !model_list.contains(&model) {
+            model_list.insert(0, model.clone());
+        }
+        Self {
+            shortcut: t.shortcut.clone(),
+            provider: provider.id(),
+            ready: config.endpoint(provider, env).api_key.is_some(),
+            model,
+            models: model_list,
+            mode: mode.id(),
+            label: mode.label(),
+            languages: t.languages.iter().map(|c| lang_view(c)).collect(),
+            all_languages: transform::TARGET_LANGUAGES
+                .iter()
+                .map(|(c, _)| lang_view(c))
+                .collect(),
+            styles: transform::STYLES
+                .iter()
+                .map(|&(id, name, label, _)| StyleView { id, name, label })
+                .collect(),
+            prompts: t.prompts.clone(),
+        }
+    }
+
+    /// Remplace les modèles suggérés par ceux du fournisseur.
+    pub fn set_models(&mut self, models: &[String]) {
+        if models.is_empty() {
+            return;
+        }
+        let mut list = models.to_vec();
+        if !list.contains(&self.model) {
+            list.insert(0, self.model.clone());
+        }
+        self.models = list;
+    }
 }
 
 /// Réglages d'un fournisseur (jamais la clé entière).
@@ -223,15 +325,18 @@ impl SettingsView {
                 .zip(NAMES)
                 .map(|(&hex, name)| AccentView { hex, name })
                 .collect(),
+            transform: TransformView::new(config, &env),
             version: env!("CARGO_PKG_VERSION"),
         }
     }
 }
 
-pub fn status_name(state: TrayState) -> &'static str {
+/// État affiché ; `transforming` : l'IA retravaille le texte.
+pub fn status_name(state: TrayState, transforming: bool) -> &'static str {
     match state {
         TrayState::Idle => "idle",
         TrayState::Recording => "recording",
+        TrayState::Processing if transforming => "transforming",
         TrayState::Processing => "processing",
         TrayState::Error => "error",
     }
@@ -276,6 +381,10 @@ pub enum Message {
     Problem {
         problem: Option<Problem>,
     },
+    /// Fenêtre réduite en barre (ou rendue à sa taille normale).
+    Compact {
+        on: bool,
+    },
 }
 
 impl Message {
@@ -315,6 +424,31 @@ mod tests {
         assert_eq!(
             Command::parse(r#"{"cmd":"reset_stats"}"#),
             Some(Command::ResetStats)
+        );
+        assert_eq!(
+            Command::parse(r#"{"cmd":"compact","on":true}"#),
+            Some(Command::Compact { on: true })
+        );
+        assert_eq!(
+            Command::parse(r#"{"cmd":"compact_menu","open":true,"height":300}"#),
+            Some(Command::CompactMenu {
+                open: true,
+                height: 300
+            })
+        );
+        assert_eq!(
+            Command::parse(r#"{"cmd":"dictate"}"#),
+            Some(Command::Dictate)
+        );
+        assert_eq!(
+            Command::parse(
+                r#"{"cmd":"change","change":{"kind":"transform_mode","value":"traduire:en"}}"#
+            ),
+            Some(Command::Change {
+                change: Change::TransformMode {
+                    value: "traduire:en".into()
+                }
+            })
         );
         assert_eq!(
             Command::parse(
@@ -400,6 +534,27 @@ mod tests {
     }
 
     #[test]
+    fn settings_view_for_the_transformation() {
+        let mut config = Config::default();
+        config.api.api_key = "sk-proj-1234567890abcd".into();
+        let view = SettingsView::new(&config, |_| None, false, &[]);
+        let t = &view.transform;
+        assert!(t.ready);
+        assert_eq!(
+            (t.mode.as_str(), t.label.as_str()),
+            ("traduire:en", "→ Anglais")
+        );
+        assert_eq!(t.languages[0].name, "Anglais");
+        assert!(t.models.contains(&"gpt-4.1-mini".to_owned()));
+        // Mistral choisi sans clé : pas prêt.
+        config.transform.provider = "mistral".into();
+        let mut t = SettingsView::new(&config, |_| None, false, &[]).transform;
+        assert!(!t.ready);
+        t.set_models(&["mistral-large-latest".into()]);
+        assert_eq!(t.models, ["mistral-small-latest", "mistral-large-latest"]);
+    }
+
+    #[test]
     fn settings_view_lists_languages() {
         let mut config = Config::default();
         let view = SettingsView::new(&config, |_| None, false, &[]);
@@ -452,10 +607,16 @@ mod tests {
             "cmd: 'reinsert'",
             "cmd: 'capture'",
             "cmd: 'open_folder'",
+            "cmd: 'compact'",
+            "cmd: 'compact_menu'",
+            "cmd: 'dictate'",
+            "cmd: 'cancel_dictation'",
+            "cmd: 'fetch_models'",
+            "case 'compact'",
         ] {
             assert!(HTML.contains(needle), "index.html : {needle} manquant");
         }
-        for status in ["idle", "recording", "processing", "error"] {
+        for status in ["idle", "recording", "processing", "transforming", "error"] {
             assert!(HTML.contains(&format!(".pill.{status}")), "{status}");
         }
     }

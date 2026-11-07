@@ -1,6 +1,7 @@
 //! Win32 : fenêtre active, injection clavier, boucle de messages, instance
 //! unique, boîtes de dialogue et fenêtre transparente de l'indicateur.
 
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -19,6 +20,7 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::Diagnostics::Debug::MessageBeep;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{AttachThreadInput, CreateMutexW, GetCurrentThreadId};
+use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
     KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, VIRTUAL_KEY, VK_BACK, VK_CONTROL, VK_LWIN, VK_MENU,
@@ -29,10 +31,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, GetGUIThreadInfo, GetMessageW, GetWindowThreadProcessId,
     IsIconic, IsWindow, KillTimer, MessageBoxW, PostThreadMessageW, RegisterClassW,
     SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow,
-    GUITHREADINFO, HWND_TOPMOST, MB_ICONERROR, MB_ICONWARNING, MB_OK, MSG, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SW_HIDE, SW_RESTORE, SW_SHOWNOACTIVATE, ULW_ALPHA,
-    WM_APP, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_EX_TRANSPARENT, WS_POPUP,
+    EVENT_SYSTEM_FOREGROUND, GUITHREADINFO, HWND_TOPMOST, MB_ICONERROR, MB_ICONWARNING, MB_OK, MSG,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SW_HIDE, SW_RESTORE,
+    SW_SHOWNOACTIVATE, ULW_ALPHA, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_APP,
+    WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+    WS_POPUP,
 };
 
 use crate::inject::Keystroke;
@@ -51,6 +54,67 @@ impl WindowHandle {
 pub fn foreground_window() -> Option<WindowHandle> {
     let hwnd = unsafe { GetForegroundWindow() };
     (!hwnd.is_invalid()).then_some(WindowHandle(hwnd.0 as isize))
+}
+
+/// Dernière fenêtre d'une autre application passée au premier plan.
+static LAST_EXTERNAL: AtomicIsize = AtomicIsize::new(0);
+
+/// Vrai si `window` appartient à Dictia (fenêtre, barre réduite).
+pub fn is_own_window(window: WindowHandle) -> bool {
+    let mut pid = 0u32;
+    unsafe { GetWindowThreadProcessId(window.hwnd(), Some(&mut pid)) };
+    pid == std::process::id()
+}
+
+unsafe extern "system" fn on_foreground(
+    _hook: HWINEVENTHOOK,
+    _event: u32,
+    hwnd: HWND,
+    _object: i32,
+    _child: i32,
+    _thread: u32,
+    _time: u32,
+) {
+    let window = WindowHandle(hwnd.0 as isize);
+    if !hwnd.is_invalid() && !is_own_window(window) {
+        LAST_EXTERNAL.store(window.0, Ordering::Relaxed);
+    }
+}
+
+/// Suit les changements de fenêtre active (à appeler une fois, depuis le
+/// thread de la boucle de messages) : quand on clique sur la barre réduite,
+/// Dictia sait dans quelle application taper.
+pub fn watch_foreground() {
+    if let Some(w) = foreground_window().filter(|w| !is_own_window(*w)) {
+        LAST_EXTERNAL.store(w.0, Ordering::Relaxed);
+    }
+    let hook = unsafe {
+        SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            None,
+            Some(on_foreground),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+        )
+    };
+    if hook.is_invalid() {
+        log::warn!("suivi de la fenêtre active indisponible");
+    }
+}
+
+/// Fenêtre où taper : celle au premier plan, ou, si c'est Dictia (clic sur
+/// la barre réduite), la dernière application utilisée.
+pub fn typing_target() -> Option<WindowHandle> {
+    let fg = foreground_window();
+    if fg.is_some_and(|w| !is_own_window(w)) {
+        return fg;
+    }
+    let last = WindowHandle(LAST_EXTERNAL.load(Ordering::Relaxed));
+    (last.0 != 0 && unsafe { IsWindow(Some(last.hwnd())) }.as_bool())
+        .then_some(last)
+        .or(fg)
 }
 
 /// Remet `target` au premier plan. Renvoie `true` si elle l'est.

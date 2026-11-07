@@ -31,10 +31,11 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, CreateWindowExW, DefWindowProcW, DestroyWindow, FindWindowW,
-    GetCursorPos, GetWindowThreadProcessId, LoadIconW, PostMessageW, RegisterClassW,
-    SetForegroundWindow, ShowWindow, SystemParametersInfoW, HTCAPTION, SPI_GETWORKAREA, SW_HIDE,
-    SW_MINIMIZE, SW_RESTORE, SW_SHOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_APP, WM_CLOSE,
-    WM_NCLBUTTONDOWN, WNDCLASSW, WS_EX_APPWINDOW, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
+    GetCursorPos, GetWindowRect, GetWindowThreadProcessId, LoadIconW, PostMessageW, RegisterClassW,
+    SetForegroundWindow, SetWindowPos, ShowWindow, SystemParametersInfoW, HTCAPTION,
+    HWND_NOTOPMOST, HWND_TOPMOST, SPI_GETWORKAREA, SWP_NOACTIVATE, SW_HIDE, SW_MINIMIZE,
+    SW_RESTORE, SW_SHOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_APP, WM_CLOSE, WM_NCLBUTTONDOWN,
+    WNDCLASSW, WS_EX_APPWINDOW, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
 };
 
 use super::WindowHandle;
@@ -262,6 +263,34 @@ impl AppWindow {
 
     pub fn minimize(&self) {
         let _ = unsafe { ShowWindow(self.hwnd, SW_MINIMIZE) };
+    }
+
+    /// Position et taille actuelles (pixels physiques) : x, y, largeur, hauteur.
+    pub fn rect(&self) -> (i32, i32, i32, i32) {
+        let mut r = RECT::default();
+        let _ = unsafe { GetWindowRect(self.hwnd, &mut r) };
+        (r.left, r.top, r.right - r.left, r.bottom - r.top)
+    }
+
+    /// Zone utile de l'écran où se trouve la fenêtre (sans la barre des
+    /// tâches) : gauche, haut, droite, bas.
+    pub fn work_area(&self) -> (i32, i32, i32, i32) {
+        let (x, y, w, h) = self.rect();
+        super::work_area_at(x + w / 2, y + h / 2).unwrap_or((x, y, x + w, y + h))
+    }
+
+    /// Place la fenêtre ; `topmost` : reste au-dessus des autres.
+    pub fn place(&self, x: i32, y: i32, width: i32, height: i32, topmost: bool) {
+        let after = if topmost {
+            HWND_TOPMOST
+        } else {
+            HWND_NOTOPMOST
+        };
+        if let Err(e) =
+            unsafe { SetWindowPos(self.hwnd, Some(after), x, y, width, height, SWP_NOACTIVATE) }
+        {
+            log::warn!("placement de la fenêtre impossible : {e}");
+        }
     }
 
     /// Déplace la fenêtre avec la souris, comme une barre de titre.
