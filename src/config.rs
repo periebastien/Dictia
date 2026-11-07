@@ -129,7 +129,7 @@ accent = "#F59E0B"
 shortcut = "Ctrl+Alt+T"
 # IA utilisée : "openai" ou "mistral" (avec la clé de ce fournisseur).
 provider = "openai"
-openai_model = "gpt-4.1-mini"
+openai_model = "gpt-5.4-mini"
 mistral_model = "mistral-small-latest"
 # Mode actif : "brut", "traduire", "reecrire" ou "perso".
 mode = "brut"
@@ -181,7 +181,7 @@ impl Default for TransformConfig {
         Self {
             shortcut: "Ctrl+Alt+T".into(),
             provider: "openai".into(),
-            openai_model: "gpt-4.1-mini".into(),
+            openai_model: "gpt-5.4-mini".into(),
             mistral_model: "mistral-small-latest".into(),
             mode: "brut".into(),
             target_language: "en".into(),
@@ -214,7 +214,7 @@ impl TransformConfig {
     pub fn model(&self) -> String {
         let (model, default) = match self.provider() {
             Provider::Mistral => (&self.mistral_model, "mistral-small-latest"),
-            _ => (&self.openai_model, "gpt-4.1-mini"),
+            _ => (&self.openai_model, "gpt-5.4-mini"),
         };
         let model = model.trim();
         if model.is_empty() { default } else { model }.to_owned()
@@ -648,7 +648,7 @@ mod tests {
         let mut t = TransformConfig::default();
         assert_eq!(
             (t.provider(), t.model().as_str()),
-            (Provider::OpenAi, "gpt-4.1-mini")
+            (Provider::OpenAi, "gpt-5.4-mini")
         );
         t.provider = "Mistral".into();
         assert_eq!(t.model(), "mistral-small-latest");

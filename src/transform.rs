@@ -198,17 +198,36 @@ pub fn parse_mode_id(id: &str) -> Result<ModeSettings> {
     })
 }
 
+/// Réflexion à demander pour répondre au plus vite : les modèles GPT-5
+/// réfléchissent par défaut (plusieurs secondes de plus). `none` depuis
+/// GPT-5.1, `minimal` pour les premiers GPT-5 ; rien pour les autres modèles.
+pub fn fast_reasoning(model: &str) -> Option<&'static str> {
+    let m = model.trim().to_ascii_lowercase();
+    if m == "gpt-5" || m.starts_with("gpt-5-") {
+        Some("minimal")
+    } else if m.starts_with("gpt-5.") || m.starts_with("gpt-6") {
+        Some("none")
+    } else {
+        None
+    }
+}
+
 /// Corps de la requête `chat/completions`. Sans `temperature` : certains
-/// modèles (à raisonnement) la refusent.
-pub fn chat_body(model: &str, system: &str, text: &str) -> Value {
-    json!({
+/// modèles (à raisonnement) la refusent. `reasoning` : voir
+/// [`fast_reasoning`].
+pub fn chat_body(model: &str, system: &str, text: &str, reasoning: Option<&str>) -> Value {
+    let mut body = json!({
         "model": model,
         "stream": true,
         "messages": [
             { "role": "system", "content": system },
             { "role": "user", "content": text }
         ]
-    })
+    });
+    if let Some(effort) = reasoning {
+        body["reasoning_effort"] = json!(effort);
+    }
+    body
 }
 
 /// Fragment de texte d'un événement du flux ; `None` à la fin (`[DONE]`).
@@ -304,7 +323,13 @@ pub fn suggested_models(provider: Provider) -> &'static [&'static str] {
             "mistral-medium-latest",
             "mistral-large-latest",
         ],
-        _ => &["gpt-4.1-mini", "gpt-4.1"],
+        // Du plus rapide au moins rapide (réflexion désactivée).
+        _ => &[
+            "gpt-5.4-mini",
+            "gpt-5.6-luna",
+            "gpt-4.1-mini",
+            "gpt-5.4-nano",
+        ],
     }
 }
 
@@ -370,14 +395,20 @@ impl Transformer {
         text: &str,
         mut on_delta: impl FnMut(&str),
     ) -> Result<String> {
-        let mut response = self
-            .client
-            .post(format!("{}/chat/completions", self.base_url))
-            .bearer_auth(&self.api_key)
-            .json(&chat_body(&self.model, system, text))
-            .send()
-            .await
-            .context("envoi à l'IA de transformation")?;
+        let reasoning = match self.provider {
+            Provider::OpenAi => fast_reasoning(&self.model),
+            _ => None,
+        };
+        let mut response = self.send(system, text, reasoning).await?;
+        if response.status() == reqwest::StatusCode::BAD_REQUEST && reasoning.is_some() {
+            // Modèle qui refuse ce réglage : nouvel essai sans.
+            let body = response.text().await.unwrap_or_default();
+            if !body.contains("reasoning") {
+                bail!("{}", api_error_message(400, &body));
+            }
+            log::warn!("{} refuse reasoning_effort : nouvel essai sans", self.model);
+            response = self.send(system, text, None).await?;
+        }
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
@@ -402,6 +433,21 @@ impl Transformer {
             bail!("l'IA n'a renvoyé aucun texte");
         }
         Ok(out)
+    }
+
+    async fn send(
+        &self,
+        system: &str,
+        text: &str,
+        reasoning: Option<&str>,
+    ) -> Result<reqwest::Response> {
+        self.client
+            .post(format!("{}/chat/completions", self.base_url))
+            .bearer_auth(&self.api_key)
+            .json(&chat_body(&self.model, system, text, reasoning))
+            .send()
+            .await
+            .context("envoi à l'IA de transformation")
     }
 
     /// Modèles de discussion disponibles avec cette clé.
@@ -518,10 +564,24 @@ mod tests {
 
     #[test]
     fn body_has_no_temperature() {
-        let b = chat_body("gpt-4.1-mini", "Traduis.", "Bonjour");
+        let b = chat_body("gpt-4.1-mini", "Traduis.", "Bonjour", None);
         assert_eq!(b["messages"][1]["content"], "Bonjour");
         assert_eq!(b["stream"], true);
         assert!(b.get("temperature").is_none());
+        assert!(b.get("reasoning_effort").is_none());
+        let b = chat_body("gpt-5.4-mini", "Traduis.", "Bonjour", Some("none"));
+        assert_eq!(b["reasoning_effort"], "none");
+    }
+
+    #[test]
+    fn gpt5_models_answer_without_thinking() {
+        assert_eq!(fast_reasoning("gpt-5.4-mini"), Some("none"));
+        assert_eq!(fast_reasoning("gpt-5.6-luna"), Some("none"));
+        assert_eq!(fast_reasoning("gpt-6-luna"), Some("none"));
+        assert_eq!(fast_reasoning("gpt-5-mini"), Some("minimal"));
+        assert_eq!(fast_reasoning("gpt-5"), Some("minimal"));
+        assert_eq!(fast_reasoning("gpt-4.1-mini"), None);
+        assert_eq!(fast_reasoning("mistral-small-latest"), None);
     }
 
     #[test]

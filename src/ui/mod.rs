@@ -542,7 +542,7 @@ mod tests {
         assert!(t.ready);
         assert_eq!((t.mode.as_str(), t.label.as_str()), ("brut", "Brut"));
         assert_eq!(t.languages[0].name, "Anglais");
-        assert!(t.models.contains(&"gpt-4.1-mini".to_owned()));
+        assert_eq!(t.models[0], "gpt-5.4-mini");
         // Mistral choisi sans clé : pas prêt.
         config.transform.provider = "mistral".into();
         let mut t = SettingsView::new(&config, |_| None, false, &[]).transform;
