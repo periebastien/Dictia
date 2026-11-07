@@ -242,14 +242,17 @@ zone de notification.
 
 ### Transformation par IA et barre réduite
 
-Le raccourci **Dicter avec transformation** (`Ctrl+Alt+T` par défaut) fait
-retravailler le texte dicté par une IA avant de le taper :
+Selon le **mode actif** (choisi dans la barre réduite ou les réglages), le
+texte dicté est retravaillé par une IA avant d'être tapé, quel que soit le
+raccourci (bascule ou maintien) :
 
 - **Traduire** dans une langue choisie (les langues proposées se règlent) ;
 - **Réécrire** : professionnel, plus court, corriger les fautes, amical ;
 - **Personnalisé** : vos propres consignes (« Rédige un e-mail poli… »).
 
-Le raccourci habituel tape toujours le texte brut. L'IA est celle d'OpenAI
+En mode *Brut*, rien ne change. Le raccourci **Dicter en brut**
+(`Ctrl+Alt+T` par défaut) tape le texte tel que dicté, sans tenir compte du
+mode. L'IA est celle d'OpenAI
 ou de Mistral, avec la clé déjà saisie ; le modèle se choisit dans
 *Réglages → Transformation par IA* (bouton pour lire la liste des modèles
 chez le fournisseur). La réponse est tapée au fil de l'eau ; si l'IA échoue,

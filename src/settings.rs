@@ -126,7 +126,7 @@ pub enum Change {
     Accent {
         value: String,
     },
-    /// Raccourci « dicter avec transformation » (vide : désactivé).
+    /// Raccourci « dicter en brut » (vide : désactivé).
     TransformShortcut {
         value: String,
     },

@@ -43,8 +43,8 @@ pub enum Mode {
     Toggle,
     /// Enregistre tant que le raccourci est maintenu.
     PushToTalk,
-    /// Bascule, texte retravaillé par l'IA de transformation.
-    Transform,
+    /// Bascule, texte tapé tel que dicté (sans transformation par l'IA).
+    Raw,
 }
 
 /// Ordre transmis au contrôleur de dictée.
@@ -53,19 +53,19 @@ pub enum Action {
     Toggle,
     Start,
     Stop,
-    /// Bascule d'une dictée avec transformation.
-    ToggleTransform,
+    /// Bascule d'une dictée brute (le mode de transformation est ignoré).
+    ToggleRaw,
     /// Abandonne la dictée en cours (rien n'est tapé).
     Cancel,
 }
 
-/// Raccourcis actifs d'après la configuration (push-to-talk et
-/// transformation facultatifs). Refuse deux fois le même raccourci.
-pub fn bindings(cfg: &HotkeyConfig, transform: &str) -> Result<Vec<(String, Mode)>> {
+/// Raccourcis actifs d'après la configuration (push-to-talk et dictée
+/// brute facultatifs). Refuse deux fois le même raccourci.
+pub fn bindings(cfg: &HotkeyConfig, raw: &str) -> Result<Vec<(String, Mode)>> {
     let mut out = vec![(cfg.shortcut.trim().to_owned(), Mode::Toggle)];
     for (shortcut, mode) in [
         (cfg.push_to_talk.trim(), Mode::PushToTalk),
-        (transform.trim(), Mode::Transform),
+        (raw.trim(), Mode::Raw),
     ] {
         if shortcut.is_empty() {
             continue;
@@ -114,7 +114,7 @@ impl Binding {
         Some(match self.mode {
             Mode::Toggle => Action::Toggle,
             Mode::PushToTalk => Action::Start,
-            Mode::Transform => Action::ToggleTransform,
+            Mode::Raw => Action::ToggleRaw,
         })
     }
 
@@ -296,9 +296,9 @@ mod tests {
     }
 
     #[test]
-    fn transform_shortcut_toggles() {
-        let b = Binding::new(Mode::Transform);
-        assert_eq!(b.on_pressed(), Some(Action::ToggleTransform));
+    fn raw_shortcut_toggles() {
+        let b = Binding::new(Mode::Raw);
+        assert_eq!(b.on_pressed(), Some(Action::ToggleRaw));
         assert_eq!(b.on_released(), None);
     }
 
@@ -315,7 +315,7 @@ mod tests {
         assert_eq!(bindings(&cfg("Ctrl+Alt+Espace", ""), "").unwrap().len(), 1);
         assert!(bindings(&cfg("Ctrl+Alt+Espace", "ctrl+alt+space"), "").is_err());
         let all = bindings(&cfg("Ctrl+Alt+Espace", "Alt+Maj+Espace"), "Ctrl+Alt+T").unwrap();
-        assert_eq!(all[2], ("Ctrl+Alt+T".to_owned(), Mode::Transform));
+        assert_eq!(all[2], ("Ctrl+Alt+T".to_owned(), Mode::Raw));
         assert!(bindings(&cfg("Ctrl+Alt+Espace", ""), "Ctrl+Alt+Espace").is_err());
         assert!(bindings(&cfg("Ctrl+Alt+Espace", "Ctrl+Alt+T"), "ctrl+alt+t").is_err());
     }

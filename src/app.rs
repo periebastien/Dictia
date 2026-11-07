@@ -472,7 +472,7 @@ impl MainLoop {
             }
             Command::CompactMenu { .. } => {}
             Command::Dictate => {
-                let _ = self.actions.send(Action::ToggleTransform);
+                let _ = self.actions.send(Action::Toggle);
             }
             Command::CancelDictation => {
                 let _ = self.actions.send(Action::Cancel);

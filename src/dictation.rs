@@ -32,8 +32,8 @@ pub enum Effect {
 
 pub const MODE_TOGGLE: &str = "Bascule";
 pub const MODE_HOLD: &str = "Maintien";
-/// Dictée retravaillée par l'IA (raccourci ou barre réduite).
-pub const MODE_TRANSFORM: &str = "Transformation";
+/// Dictée tapée telle quelle, quel que soit le mode de transformation.
+pub const MODE_RAW: &str = "Brut";
 
 /// Réaction à une action du raccourci.
 pub fn on_action(phase: Phase, action: Action, tail: Duration) -> (Phase, Effect) {
@@ -41,12 +41,12 @@ pub fn on_action(phase: Phase, action: Action, tail: Duration) -> (Phase, Effect
     use Phase::*;
     match (phase, action) {
         (Idle, Toggle) => (Recording, Effect::Start(MODE_TOGGLE)),
-        (Idle, ToggleTransform) => (Recording, Effect::Start(MODE_TRANSFORM)),
+        (Idle, ToggleRaw) => (Recording, Effect::Start(MODE_RAW)),
         (Idle, Start) => (Recording, Effect::Start(MODE_HOLD)),
         (Idle, Stop | Cancel) => (Idle, Effect::Nothing),
         (Recording | Ending, Cancel) => (Idle, Effect::Cancel),
         // Un second appui en mode bascule est délibéré : arrêt immédiat.
-        (Recording | Ending, Toggle | ToggleTransform) => (Idle, Effect::Stop),
+        (Recording | Ending, Toggle | ToggleRaw) => (Idle, Effect::Stop),
         (Recording, Stop) if tail.is_zero() => (Idle, Effect::Stop),
         (Recording, Stop) => (Ending, Effect::StopAfter(tail)),
         (Recording, Start) => (Recording, Effect::Nothing),
@@ -119,9 +119,9 @@ mod tests {
     }
 
     #[test]
-    fn transform_toggle_and_cancel() {
-        let (p, e) = on_action(Phase::Idle, Action::ToggleTransform, TAIL);
-        assert_eq!((p, e), (Phase::Recording, Effect::Start(MODE_TRANSFORM)));
+    fn raw_toggle_and_cancel() {
+        let (p, e) = on_action(Phase::Idle, Action::ToggleRaw, TAIL);
+        assert_eq!((p, e), (Phase::Recording, Effect::Start(MODE_RAW)));
         // L'un ou l'autre raccourci arrête la dictée en cours.
         assert_eq!(
             on_action(p, Action::Toggle, TAIL),

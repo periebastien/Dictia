@@ -122,17 +122,17 @@ enabled = true
 accent = "#F59E0B"
 
 [transform]
-# Transformation par IA : le texte dicté avec le raccourci ci-dessous est
-# retravaillé (traduit, réécrit…) avant d'être tapé. Le raccourci de dictée
-# habituel tape toujours le texte brut.
-# Raccourci « dicter avec transformation » (vide : désactivé).
+# Transformation par IA : selon le mode actif, le texte dicté est retravaillé
+# (traduit, réécrit…) avant d'être tapé, quel que soit le raccourci utilisé.
+# Raccourci « dicter en brut » : tape le texte tel que dicté, sans tenir
+# compte du mode (vide : désactivé).
 shortcut = "Ctrl+Alt+T"
 # IA utilisée : "openai" ou "mistral" (avec la clé de ce fournisseur).
 provider = "openai"
 openai_model = "gpt-4.1-mini"
 mistral_model = "mistral-small-latest"
 # Mode actif : "brut", "traduire", "reecrire" ou "perso".
-mode = "traduire"
+mode = "brut"
 # Traduction : langue d'arrivée et langues proposées (codes ISO 639-1).
 target_language = "en"
 languages = ["en", "es", "de", "it"]
@@ -183,7 +183,7 @@ impl Default for TransformConfig {
             provider: "openai".into(),
             openai_model: "gpt-4.1-mini".into(),
             mistral_model: "mistral-small-latest".into(),
-            mode: "traduire".into(),
+            mode: "brut".into(),
             target_language: "en".into(),
             languages: ["en", "es", "de", "it"].map(String::from).to_vec(),
             style: "professionnel".into(),

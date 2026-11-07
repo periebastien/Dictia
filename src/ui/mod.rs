@@ -540,10 +540,7 @@ mod tests {
         let view = SettingsView::new(&config, |_| None, false, &[]);
         let t = &view.transform;
         assert!(t.ready);
-        assert_eq!(
-            (t.mode.as_str(), t.label.as_str()),
-            ("traduire:en", "→ Anglais")
-        );
+        assert_eq!((t.mode.as_str(), t.label.as_str()), ("brut", "Brut"));
         assert_eq!(t.languages[0].name, "Anglais");
         assert!(t.models.contains(&"gpt-4.1-mini".to_owned()));
         // Mistral choisi sans clé : pas prêt.

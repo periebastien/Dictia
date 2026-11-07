@@ -12,7 +12,7 @@ use tokio::sync::{mpsc, Mutex};
 use crate::audio::capture::{LiveAudio, Microphone};
 use crate::audio::{duration_of, flac, vad, TARGET_RATE};
 use crate::config::Config;
-use crate::dictation::{self, Effect, Phase, MODE_TRANSFORM};
+use crate::dictation::{self, Effect, Phase, MODE_RAW};
 use crate::history::{self, Entry, Problem};
 use crate::hotkey::Action;
 use crate::inject;
@@ -468,9 +468,9 @@ impl Controller {
             return None;
         };
         let target = platform::typing_target();
-        let transform = (mode == MODE_TRANSFORM)
-            .then(|| self.transform_plan())
-            .flatten();
+        // Le mode de transformation vaut pour toutes les dictées, sauf le
+        // raccourci « dicter en brut ».
+        let transform = (mode != MODE_RAW).then(|| self.transform_plan()).flatten();
         if let Some(plan) = &transform {
             let transformer = Arc::clone(&plan.transformer);
             tokio::spawn(async move { transformer.warm_up().await });

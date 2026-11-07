@@ -265,7 +265,7 @@ body.compact #bar{display:flex}
         <div class="set"><div class="lbl"><label for="tr-model">Modèle</label><span>Coût et qualité selon le modèle</span></div>
           <select id="tr-model" class="field" style="max-width:170px"></select>
           <button class="mini" id="tr-refresh" aria-label="Lire la liste des modèles chez le fournisseur" title="Lire la liste des modèles"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></button></div>
-        <div class="set"><div class="lbl"><label for="tr-mode">Mode actif</label><span>Aussi dans la barre réduite</span></div>
+        <div class="set"><div class="lbl"><label for="tr-mode">Mode actif</label><span>Pour toutes les dictées ; aussi dans la barre</span></div>
           <select id="tr-mode" class="field" style="max-width:190px"></select></div>
       </div>
       <div class="section">Langues de traduction</div>
@@ -529,7 +529,7 @@ body.compact #bar{display:flex}
   const MODES = [
     { key: 'shortcut', label: 'Mode bascule', hint: 'Appuyer pour commencer, ré-appuyer pour finir' },
     { key: 'push_to_talk', label: 'Maintenir pour parler', hint: 'Enregistre tant que les touches sont maintenues', optional: true },
-    { key: 'transform_shortcut', label: 'Dicter avec transformation', hint: 'Bascule ; texte retravaillé par l’IA (mode actif)', optional: true }
+    { key: 'transform_shortcut', label: 'Dicter en brut', hint: 'Bascule ; texte tel que dicté, sans le mode IA', optional: true }
   ];
   const shortcutValue = (key) => (key === 'transform_shortcut'
     ? (state.settings.transform || {}).shortcut : state.settings[key]) || '';
@@ -742,7 +742,7 @@ body.compact #bar{display:flex}
       })))
     ]).flat();
     const foot = el('div', { class: 'foot' }, t.shortcut
-      ? [el('kbd', { text: t.shortcut }), 'dicte avec ce mode']
+      ? [el('kbd', { text: t.shortcut }), 'dicte en brut']
       : ['Choisissez un raccourci dans Raccourcis']);
     menu.replaceChildren(...items, el('div', { class: 'opts' }, [el('button', { class: 'opt', text: '+ Nouvelle consigne',
       onclick: () => { send({ cmd: 'compact', on: false }); showTab('reglages'); $('prompt-open').click(); } })]), foot);
