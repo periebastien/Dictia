@@ -96,3 +96,29 @@ Pistes notées, non planifiées.
   pas une erreur de dictée ; ne relire que le champ visé, juste après la
   dictée. Variante plus simple et fiable : corriger la dictée dans l'onglet
   Historique et en déduire le terme.
+- **Extension Chrome pour Gmail (PC)** : un bouton Dictia dans la fenêtre
+  « Répondre » de Gmail. L'extension lit l'e-mail ouvert (expéditeur, objet,
+  fil), enregistre la voix dans le navigateur, puis l'IA de transformation
+  rédige la réponse à partir de l'e-mail et de la consigne dictée (ex. « dis-lui
+  oui pour mardi, rappelle le devis »). Le brouillon est écrit directement dans
+  Gmail. Installation pour usage personnel, hors Chrome Web Store au début.
+- **Android** : pas de module Google Workspace. Dans l'application Gmail, on
+  garde la bulle Dictia actuelle pour dicter les réponses.
+- **Contexte client depuis le coffre Obsidian** : le coffre est fait de
+  fichiers Markdown hébergés sur GitHub. Accès en lecture seule à ce dépôt.
+  Convention : chaque fiche client indique l'adresse e-mail du client dans son
+  en-tête, pour retrouver la fiche de l'expéditeur. Le serveur personnel garde
+  une copie à jour du coffre pour répondre vite. Seule la fiche du client
+  concerné est ajoutée à la consigne envoyée à l'IA.
+- **Compte et synchronisation sur le serveur personnel** : connexion avec le
+  compte Google (OAuth). Le serveur synchronise le vocabulaire, les
+  remplacements, les consignes personnalisées, les langues et les réglages
+  entre PC, Android et l'extension Chrome.
+- **Clés API et appels IA** : les clés API restent sur chaque appareil. Les
+  appels à l'IA partent directement de l'appareil vers OpenAI ou Mistral,
+  jamais via le serveur, pour ne pas ajouter de délai (priorité latence).
+- **Vigilance** : le contenu des e-mails et les fiches clients sont envoyés au
+  fournisseur d'IA choisi. L'accès au serveur doit être protégé (HTTPS, jetons
+  d'accès).
+- **Ordre suggéré** : 1) compte et synchronisation ; 2) extension Chrome
+  Gmail ; 3) lien avec le coffre clients.
