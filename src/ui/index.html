@@ -109,12 +109,24 @@ select.field{width:auto;height:30px;padding:0 8px;font-size:12px}
 .stat .line{font-size:11px;color:var(--muted);line-height:1.5}
 .stat .tag{align-self:flex-start;font-size:10px}
 .footer{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted)}
-nav{height:64px;flex-shrink:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--line);background:#17171C}
+nav{height:64px;flex-shrink:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border-top:1px solid var(--line);background:#17171C}
 nav button{position:relative;border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--muted);font-size:11px;font-weight:500}
 nav button:hover{color:#fff}
 nav button.on{color:var(--accent);font-weight:600}
 nav button.on::before{content:'';position:absolute;top:0;width:22px;height:3px;border-radius:0 0 3px 3px;background:var(--accent)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.mode-chip{display:flex;align-items:center;gap:4px;height:28px;padding:0 6px 0 8px;border-radius:7px;font-size:12px;font-weight:600;white-space:nowrap;border:1px solid rgba(255,255,255,0.10);background:var(--chip);color:var(--soft);max-width:130px}
+.mode-chip.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--text)}
+.mode-chip span{overflow:hidden;text-overflow:ellipsis}
+#mode-menu{position:absolute;left:50px;top:46px;width:290px;z-index:10;box-shadow:0 14px 36px rgba(0,0,0,0.6)}
+#mode-menu .foot{justify-content:space-between;color:var(--soft);font-size:12px}
+.app{position:relative}
+.mode-groups{padding:4px 6px 6px}
+.mode-groups>*:not(:last-child){border-bottom:0}
+.mode-groups .section{padding:6px 6px 2px;font-size:10px}
+.mode-groups .opts{display:flex;flex-wrap:wrap;gap:4px;padding:2px 2px 4px}
+.opt{height:28px}
+.opt.add{border-style:dashed;border-color:rgba(255,255,255,0.22);background:transparent;color:var(--accent)}
 .prompt{display:flex;align-items:flex-start;gap:8px;padding:8px 8px 8px 12px}
 .prompt div{flex-grow:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .prompt b{font-size:13px;font-weight:500}
@@ -158,7 +170,7 @@ body.compact #bar{display:flex}
 <div class="app">
   <header id="titlebar">
     <div class="logo"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0E0E12" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg></div>
-    <div class="brand">Dictia</div>
+    <button class="mode-chip" id="mode-chip" aria-label="Mode de fonctionnement" aria-expanded="false" title="Mode de fonctionnement"><span id="mode-chip-text">Brut</span><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="m6 9 6 6 6-6"/></svg></button>
     <div id="status" class="pill idle"><span class="dot"></span><span id="status-text">Prêt</span></div>
     <div class="grow"></div>
     <button class="icon-btn" id="btn-stats" aria-label="Statistiques" title="Statistiques"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-4M12 16V8M17 16v-7"/></svg></button>
@@ -166,6 +178,7 @@ body.compact #bar{display:flex}
     <button class="icon-btn" id="btn-min" aria-label="Réduire" title="Réduire"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
     <button class="icon-btn" id="btn-close" aria-label="Fermer dans la zone de notification"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
+  <div class="bar-menu" id="mode-menu" role="menu" aria-label="Modes" hidden></div>
 
   <main>
     <!-- Historique -->
@@ -210,6 +223,29 @@ body.compact #bar{display:flex}
         <div class="row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="rep-cancel">Annuler</button><button class="btn" type="submit">Ajouter</button></div>
       </form>
       <button class="dashed" id="rep-open"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg>Ajouter un remplacement</button>
+    </section>
+
+    <!-- Modes -->
+    <section class="view" id="view-modes">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <h2>Mode de fonctionnement</h2>
+        <p class="sub" id="modes-sub">Appliqué à toutes les dictées.</p>
+      </div>
+      <div class="list mode-groups" id="mode-groups" role="radiogroup" aria-label="Mode"></div>
+      <div class="row" id="lang-add-row" hidden><label for="tr-lang-add" class="sr">Ajouter une langue</label><select id="tr-lang-add" class="field"></select><button class="btn ghost" id="lang-add-cancel" type="button" style="height:30px">Annuler</button></div>
+      <div class="section">Langues proposées</div>
+      <div class="chips" id="tr-langs"></div>
+      <div class="section">Consignes personnalisées</div>
+      <div class="list" id="tr-prompts"></div>
+      <form class="addrep" id="prompt-form">
+        <label for="prompt-name" class="sr">Nom de la consigne</label>
+        <input id="prompt-name" class="field" placeholder="Nom (ex. E-mail client)" autocomplete="off">
+        <label for="prompt-text" class="sr">Consigne</label>
+        <textarea id="prompt-text" class="field" placeholder="Consigne (ex. Rédige un e-mail poli et concis, avec vouvoiement.)"></textarea>
+        <div class="row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="prompt-cancel">Annuler</button><button class="btn" type="submit">Enregistrer</button></div>
+      </form>
+      <button class="dashed" id="prompt-open"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg>Nouvelle consigne</button>
+      <p class="sub">L'IA et son modèle se choisissent dans Réglages.</p>
     </section>
 
     <!-- Raccourcis -->
@@ -265,22 +301,8 @@ body.compact #bar{display:flex}
         <div class="set"><div class="lbl"><label for="tr-model">Modèle</label><span>Coût et qualité selon le modèle</span></div>
           <select id="tr-model" class="field" style="max-width:170px"></select>
           <button class="mini" id="tr-refresh" aria-label="Lire la liste des modèles chez le fournisseur" title="Lire la liste des modèles"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg></button></div>
-        <div class="set"><div class="lbl"><label for="tr-mode">Mode actif</label><span>Pour toutes les dictées ; aussi dans la barre</span></div>
-          <select id="tr-mode" class="field" style="max-width:190px"></select></div>
       </div>
-      <div class="section">Langues de traduction</div>
-      <div class="chips" id="tr-langs"></div>
-      <div class="row"><label for="tr-lang-add" class="sr">Ajouter une langue</label><select id="tr-lang-add" class="field"></select></div>
-      <div class="section">Consignes personnalisées</div>
-      <div class="list" id="tr-prompts"></div>
-      <form class="addrep" id="prompt-form">
-        <label for="prompt-name" class="sr">Nom de la consigne</label>
-        <input id="prompt-name" class="field" placeholder="Nom (ex. E-mail client)" autocomplete="off">
-        <label for="prompt-text" class="sr">Consigne</label>
-        <textarea id="prompt-text" class="field" placeholder="Consigne (ex. Rédige un e-mail poli et concis, avec vouvoiement.)"></textarea>
-        <div class="row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="prompt-cancel">Annuler</button><button class="btn" type="submit">Ajouter</button></div>
-      </form>
-      <button class="dashed" id="prompt-open"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg>Nouvelle consigne</button>
+      <button class="notice" id="tr-to-modes" style="text-align:left;color:var(--text)">Le <b>mode</b> (Brut, Traduire, Réécrire…), les langues et les consignes se règlent dans l'onglet <b>Modes</b> ou avec la pastille de l'en-tête.</button>
       <div class="section">Dictée</div>
       <div class="list">
         <div class="set"><div class="lbl"><span>Animation près du curseur</span><span>Écoute en rouge, transcription en bleu</span></div>
@@ -312,6 +334,7 @@ body.compact #bar{display:flex}
   <nav aria-label="Navigation principale">
     <button data-tab="historique" class="on"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>Historique</button>
     <button data-tab="vocabulaire"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>Vocabulaire</button>
+    <button data-tab="modes"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg>Modes</button>
     <button data-tab="raccourcis"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>Raccourcis</button>
     <button data-tab="reglages"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg>Réglages</button>
   </nav>
@@ -344,6 +367,7 @@ body.compact #bar{display:flex}
   const ICON_COPY = '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
   const ICON_INSERT = '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>';
   const ICON_X = '<svg aria-hidden="true" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+  const ICON_EDIT = '<svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
   const ICON_ARROW = '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8B8B95" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
   const STATUS = { idle: 'Prêt', recording: 'Écoute', processing: 'Transcription', transforming: 'Transformation', error: 'Erreur' };
 
@@ -640,31 +664,96 @@ body.compact #bar{display:flex}
   // ---- transformation par IA ----
   const tr = () => state.settings.transform;
   const changeTr = (kind, value) => send({ cmd: 'change', change: { kind, value } });
-  /** Modes proposés : [{ title, items: [{ id, label }] }]. */
-  function modeGroups() {
+  /** Modes proposés : [{ title, key, items: [{ id, label }] }] ; `all` garde
+   *  les groupes vides (onglet Modes, pour pouvoir les remplir). */
+  function modeGroups(all) {
     const t = tr();
     return [
-      { title: 'Brut', items: [{ id: 'brut', label: 'Texte dicté' }] },
-      { title: 'Traduire en', items: t.languages.map((l) => ({ id: 'traduire:' + l.code, label: l.name, long: '→ ' + l.name })) },
-      { title: 'Réécrire', items: t.styles.map((x) => ({ id: 'reecrire:' + x.id, label: x.name })) },
-      { title: 'Personnalisé', items: t.prompts.map((p) => ({ id: 'perso:' + p.name, label: p.name })) }
-    ].filter((g) => g.items.length);
+      { title: 'Brut', key: 'brut', items: [{ id: 'brut', label: 'Texte dicté' }] },
+      { title: 'Traduire en', key: 'traduire', items: t.languages.map((l) => ({ id: 'traduire:' + l.code, label: l.name })) },
+      { title: 'Réécrire', key: 'reecrire', items: t.styles.map((x) => ({ id: 'reecrire:' + x.id, label: x.name })) },
+      { title: 'Personnalisé', key: 'perso', items: t.prompts.map((p) => ({ id: 'perso:' + p.name, label: p.name })) }
+    ].filter((g) => all || g.items.length);
   }
+  /** Groupes de boutons de mode ; `extra(group)` ajoute des boutons à un groupe. */
+  function modeButtons(onPick, extra) {
+    const t = tr();
+    return modeGroups(!!extra).map((g) => [
+      el('div', { class: 'section', text: g.title }),
+      el('div', { class: 'opts' }, [
+        ...g.items.map((i) => el('button', {
+          class: 'opt' + (i.id === t.mode ? ' on' : ''), role: 'menuitemradio',
+          'aria-checked': i.id === t.mode ? 'true' : 'false', text: i.label,
+          onclick: () => { if (i.id !== t.mode) changeTr('transform_mode', i.id); onPick(); }
+        })),
+        ...(extra ? extra(g.key) : [])
+      ])
+    ]).flat();
+  }
+
+  // ---- pastille du mode (en-tête) ----
+  let modeMenuOpen = false;
+  function setModeMenu(open) {
+    modeMenuOpen = open;
+    $('mode-chip').setAttribute('aria-expanded', open ? 'true' : 'false');
+    $('mode-menu').hidden = !open;
+    if (!open) return;
+    $('mode-menu').replaceChildren(...modeButtons(() => setModeMenu(false)),
+      el('button', { class: 'foot', style: 'border:0;border-top:1px solid var(--line);background:transparent;width:100%', onclick: () => { setModeMenu(false); showTab('modes'); } },
+        ['Gérer les modes, langues et consignes', el('span', { text: '›' })]));
+  }
+  function renderModeChip() {
+    const t = tr();
+    $('mode-chip-text').textContent = t.label;
+    $('mode-chip').classList.toggle('on', t.mode !== 'brut');
+    if (modeMenuOpen) setModeMenu(true);
+  }
+  $('mode-chip').addEventListener('click', () => setModeMenu(!modeMenuOpen));
+  document.addEventListener('mousedown', (e) => {
+    if (modeMenuOpen && !e.target.closest('#mode-menu') && !e.target.closest('#mode-chip')) setModeMenu(false);
+  });
+  window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modeMenuOpen) setModeMenu(false); });
+  $('tr-to-modes').addEventListener('click', () => showTab('modes'));
+
+  // ---- onglet Modes ----
+  function addButton(text, label, onclick) {
+    return el('button', { class: 'opt add', text, 'aria-label': label, onclick });
+  }
+  function renderModes() {
+    const t = tr();
+    $('modes-sub').textContent = 'Appliqué à toutes les dictées.' + (t.shortcut ? ' ' + t.shortcut + ' dicte toujours en brut.' : '');
+    $('mode-groups').replaceChildren(...modeButtons(() => {}, (key) => {
+      if (key === 'traduire') return [addButton('+ Langue', 'Ajouter une langue', () => { $('lang-add-row').hidden = false; $('tr-lang-add').focus(); })];
+      if (key === 'perso') return [addButton('+ Consigne', 'Nouvelle consigne', () => openPromptForm())];
+      return [];
+    }));
+  }
+  $('lang-add-cancel').addEventListener('click', () => { $('lang-add-row').hidden = true; });
   $('tr-provider').addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (b && b.dataset.provider !== tr().provider) changeTr('transform_provider', b.dataset.provider);
   });
   $('tr-model').addEventListener('change', (e) => changeTr('transform_model', e.target.value));
   $('tr-refresh').addEventListener('click', () => { send({ cmd: 'fetch_models' }); toast('Lecture des modèles…'); });
-  $('tr-mode').addEventListener('change', (e) => changeTr('transform_mode', e.target.value));
   $('tr-lang-add').addEventListener('change', (e) => {
     const code = e.target.value;
     if (!code) return;
     changeTr('transform_languages', tr().languages.map((l) => l.code).concat([code]));
+    $('lang-add-row').hidden = true;
   });
   function savePrompts(list) { changeTr('transform_prompts', list); }
-  $('prompt-open').addEventListener('click', () => { $('prompt-form').classList.add('on'); $('prompt-open').hidden = true; $('prompt-name').focus(); });
-  function closePromptForm() { $('prompt-form').classList.remove('on'); $('prompt-open').hidden = false; $('prompt-name').value = ''; $('prompt-text').value = ''; }
+  // Consigne en cours de modification (son nom d'origine), ou null.
+  let editingPrompt = null;
+  function openPromptForm(prompt) {
+    editingPrompt = prompt ? prompt.name : null;
+    $('prompt-name').value = prompt ? prompt.name : '';
+    $('prompt-text').value = prompt ? prompt.text : '';
+    $('prompt-form').classList.add('on');
+    $('prompt-open').hidden = true;
+    $('prompt-name').focus();
+  }
+  $('prompt-open').addEventListener('click', () => openPromptForm());
+  function closePromptForm() { editingPrompt = null; $('prompt-form').classList.remove('on'); $('prompt-open').hidden = false; $('prompt-name').value = ''; $('prompt-text').value = ''; }
   $('prompt-cancel').addEventListener('click', closePromptForm);
   $('prompt-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -672,7 +761,12 @@ body.compact #bar{display:flex}
     const text = $('prompt-text').value.trim();
     if (!name) { $('prompt-name').focus(); return; }
     if (!text) { $('prompt-text').focus(); return; }
-    savePrompts(tr().prompts.filter((p) => p.name !== name).concat([{ name, text }]));
+    const list = tr().prompts.map((p) => ({ name: p.name, text: p.text }));
+    const at = list.findIndex((p) => p.name === (editingPrompt || name));
+    if (at >= 0) list[at] = { name, text }; else list.push({ name, text });
+    savePrompts(list.filter((p, i) => i === at || at < 0 || p.name !== name));
+    // La consigne active renommée reste active.
+    if (editingPrompt && editingPrompt !== name && tr().mode === 'perso:' + editingPrompt) changeTr('transform_mode', 'perso:' + name);
     closePromptForm();
   });
   function renderTransform() {
@@ -680,10 +774,6 @@ body.compact #bar{display:flex}
     document.querySelectorAll('#tr-provider button').forEach((b) => b.classList.toggle('on', b.dataset.provider === t.provider));
     $('tr-model').replaceChildren(...t.models.map((m) => el('option', { value: m, text: m })));
     $('tr-model').value = t.model;
-    const groups = modeGroups();
-    $('tr-mode').replaceChildren(...groups.map((g) => el('optgroup', { label: g.title },
-      g.items.map((i) => el('option', { value: i.id, text: i.long || i.label })))));
-    $('tr-mode').value = t.mode;
     const name = t.provider === 'mistral' ? 'Mistral' : 'OpenAI';
     $('tr-notice').hidden = t.ready;
     $('tr-notice').textContent = 'Ajoutez la clé ' + name + ' ci-dessus pour utiliser la transformation.';
@@ -699,9 +789,12 @@ body.compact #bar{display:flex}
     prompts.hidden = t.prompts.length === 0;
     prompts.replaceChildren(...t.prompts.map((p) => el('div', { class: 'prompt' }, [
       el('div', {}, [el('b', { text: p.name }), el('span', { text: p.text })]),
+      el('button', { 'aria-label': 'Modifier la consigne ' + p.name, html: ICON_EDIT, onclick: () => openPromptForm(p) }),
       el('button', { 'aria-label': 'Supprimer la consigne ' + p.name, html: ICON_X, onclick: () =>
         savePrompts(t.prompts.filter((x) => x.name !== p.name)) })
     ])));
+    renderModes();
+    renderModeChip();
     renderBar();
   }
 
@@ -733,14 +826,7 @@ body.compact #bar{display:flex}
     $('bar-mode').setAttribute('aria-expanded', bar.menu ? 'true' : 'false');
     if (!bar.menu || !state.settings.transform) return;
     const t = tr();
-    const items = modeGroups().map((g) => [
-      el('div', { class: 'section', text: g.title }),
-      el('div', { class: 'opts' }, g.items.map((i) => el('button', {
-        class: 'opt' + (i.id === t.mode ? ' on' : ''), role: 'menuitemradio',
-        'aria-checked': i.id === t.mode ? 'true' : 'false', text: i.label,
-        onclick: () => { changeTr('transform_mode', i.id); closeMenu(); }
-      })))
-    ]).flat();
+    const items = modeButtons(() => closeMenu());
     const foot = el('div', { class: 'foot' }, t.shortcut
       ? [el('kbd', { text: t.shortcut }), 'dicte en brut']
       : ['Choisissez un raccourci dans Raccourcis']);

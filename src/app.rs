@@ -32,8 +32,9 @@ use crate::settings::{self, Change, VocabEdit};
 use crate::stats::{self, ModelStats};
 use crate::transcription::standard::StandardBackend;
 use crate::transcription::Backend;
+use crate::transform;
 use crate::transform::Transformer;
-use crate::tray::{Tray, TrayState, MENU_OPEN_CONFIG, MENU_OPEN_UI, MENU_QUIT};
+use crate::tray::{Tray, TrayState, MENU_MODE_PREFIX, MENU_OPEN_CONFIG, MENU_OPEN_UI, MENU_QUIT};
 use crate::ui::window::UiWindow;
 use crate::ui::{self, Command, Message, SettingsView, Tab};
 use crate::vocab::{self, Vocab, VOCAB_FILE};
@@ -95,8 +96,17 @@ pub fn run() -> Result<()> {
     {
         let dir = dir.clone();
         let main_thread = status.main_thread;
+        let menu_commands = commands_tx.clone();
         MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
-            if event.id == MENU_QUIT {
+            if let Some(mode) = event.id.0.strip_prefix(MENU_MODE_PREFIX) {
+                // Appliqué par la boucle principale, comme depuis la fenêtre.
+                let _ = menu_commands.send(Command::Change {
+                    change: Change::TransformMode {
+                        value: mode.to_owned(),
+                    },
+                });
+                platform::post_wake(main_thread);
+            } else if event.id == MENU_QUIT {
                 platform::post_quit(main_thread);
             } else if event.id == MENU_OPEN_UI {
                 platform::request_ui(UiRequest::Show);
@@ -173,6 +183,7 @@ pub fn run() -> Result<()> {
         transform_models: HashMap::new(),
         compact: false,
     };
+    app.sync_tray_modes();
     platform::watch_foreground();
     if let Some(tab) = startup_tab {
         app.open_ui(Some(tab));
@@ -513,6 +524,16 @@ impl MainLoop {
         }
     }
 
+    /// Sous-menu « Mode » et infobulle de l'icône d'après le mode actif.
+    fn sync_tray_modes(&mut self) {
+        let shared = self.shared.read().expect("réglages");
+        let t = &shared.config.transform;
+        let label = transform::Mode::active(t).label();
+        let entries = transform::menu_entries(t);
+        drop(shared);
+        self.tray.set_modes(&entries, &label);
+    }
+
     /// Écrit le réglage dans `config.toml` puis l'applique immédiatement.
     fn apply_change(&mut self, change: &Change) -> Result<()> {
         let path = self.dir.join(CONFIG_FILE);
@@ -567,6 +588,14 @@ impl MainLoop {
         drop(shared);
         if mic_changed {
             self.mic_control.sync_microphone();
+        }
+        if matches!(
+            change,
+            Change::TransformMode { .. }
+                | Change::TransformLanguages { .. }
+                | Change::TransformPrompts { .. }
+        ) {
+            self.sync_tray_modes();
         }
         Ok(())
     }

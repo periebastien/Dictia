@@ -158,6 +158,49 @@ pub const TARGET_LANGUAGES: [(&str, &str); 16] = [
     ("uk", "Ukrainien"),
 ];
 
+/// Ligne du menu des modes (icône de notification).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MenuEntry {
+    /// Titre de groupe, non cliquable.
+    Header(&'static str),
+    /// Mode à choisir : identifiant (`traduire:en`…), nom, coché si actif.
+    Item {
+        id: String,
+        label: String,
+        checked: bool,
+    },
+    Separator,
+}
+
+/// Modes proposés, groupés comme dans la fenêtre, le mode actif coché.
+pub fn menu_entries(cfg: &TransformConfig) -> Vec<MenuEntry> {
+    let active = Mode::active(cfg).id();
+    let item = |id: String, label: String| MenuEntry::Item {
+        checked: id == active,
+        id,
+        label,
+    };
+    let mut out = vec![item("brut".into(), "Brut".into())];
+    if !cfg.languages.is_empty() {
+        out.extend([MenuEntry::Separator, MenuEntry::Header("Traduire en")]);
+        for code in &cfg.languages {
+            let code = code.trim().to_ascii_lowercase();
+            out.push(item(format!("traduire:{code}"), language_name(&code)));
+        }
+    }
+    out.extend([MenuEntry::Separator, MenuEntry::Header("Réécrire")]);
+    for (id, name, _, _) in STYLES {
+        out.push(item(format!("reecrire:{id}"), name.into()));
+    }
+    if !cfg.prompts.is_empty() {
+        out.extend([MenuEntry::Separator, MenuEntry::Header("Personnalisé")]);
+        for p in &cfg.prompts {
+            out.push(item(format!("perso:{}", p.name), p.name.clone()));
+        }
+    }
+    out
+}
+
 /// Nom français d'une langue (son code s'il est inconnu).
 pub fn language_name(code: &str) -> String {
     TARGET_LANGUAGES
@@ -506,6 +549,39 @@ mod tests {
                 text: "Poli.".into()
             }
         );
+    }
+
+    #[test]
+    fn menu_lists_every_mode_and_checks_the_active_one() {
+        let mut c = cfg("traduire");
+        c.languages = vec!["en".into(), "ES".into()];
+        let entries = menu_entries(&c);
+        let items: Vec<(&str, bool)> = entries
+            .iter()
+            .filter_map(|e| match e {
+                MenuEntry::Item { id, checked, .. } => Some((id.as_str(), *checked)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(items[0], ("brut", false));
+        assert_eq!(items[1], ("traduire:en", true));
+        assert_eq!(items[2], ("traduire:es", false));
+        assert_eq!(items.len(), 1 + 2 + STYLES.len());
+        assert!(entries.contains(&MenuEntry::Header("Réécrire")));
+        // Pas de consigne : pas de groupe Personnalisé.
+        assert!(!entries.contains(&MenuEntry::Header("Personnalisé")));
+        c.prompts.push(CustomPrompt {
+            name: "Mail".into(),
+            text: "Poli.".into(),
+        });
+        c.mode = "perso".into();
+        c.custom = "Mail".into();
+        let entries = menu_entries(&c);
+        assert!(entries.contains(&MenuEntry::Item {
+            id: "perso:Mail".into(),
+            label: "Mail".into(),
+            checked: true
+        }));
     }
 
     #[test]

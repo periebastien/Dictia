@@ -16,13 +16,16 @@ impl TrayState {
         self as usize
     }
 
-    pub fn tooltip(self, shortcut: &str) -> String {
-        match self {
-            Self::Idle => format!("Dictia — prêt ({shortcut})"),
+    /// Infobulle ; `mode` : étiquette du mode actif (« → Anglais »…).
+    pub fn tooltip(self, shortcut: &str, mode: &str) -> String {
+        let text = match self {
+            Self::Idle => format!("Dictia — prêt ({shortcut}) · {mode}"),
             Self::Recording => "Dictia — enregistrement…".to_owned(),
             Self::Processing => "Dictia — transcription…".to_owned(),
             Self::Error => "Dictia — erreur, voir dictia.log".to_owned(),
-        }
+        };
+        // Limite de Windows : 127 caractères.
+        text.chars().take(127).collect()
     }
 
     fn color(self) -> [u8; 3] {
@@ -111,25 +114,30 @@ fn in_microphone(x: f32, y: f32) -> bool {
 }
 
 #[cfg(windows)]
-pub use self::win::{Tray, MENU_OPEN_CONFIG, MENU_OPEN_UI, MENU_QUIT};
+pub use self::win::{Tray, MENU_MODE_PREFIX, MENU_OPEN_CONFIG, MENU_OPEN_UI, MENU_QUIT};
 
 #[cfg(windows)]
 mod win {
     use anyhow::{Context, Result};
-    use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem};
+    use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
     use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
     use super::{icon_rgba, TrayState, ICON_SIZE};
+    use crate::transform::MenuEntry;
 
     pub const MENU_OPEN_UI: &str = "open-ui";
     pub const MENU_OPEN_CONFIG: &str = "open-config";
     pub const MENU_QUIT: &str = "quit";
+    /// Préfixe des choix de mode : `mode:traduire:en`…
+    pub const MENU_MODE_PREFIX: &str = "mode:";
 
     pub struct Tray {
         icon: TrayIcon,
         icons: Vec<Icon>,
         shown: TrayState,
         shortcut: String,
+        mode_menu: Submenu,
+        mode_label: String,
     }
 
     impl Tray {
@@ -151,10 +159,14 @@ mod win {
                 None,
             );
             let quit = MenuItem::with_id(MENU_QUIT, "Quitter", true, None);
+            let mode_menu = Submenu::new("Mode", true);
             menu.append_items(&[
                 &title,
                 &PredefinedMenuItem::separator(),
                 &open_ui,
+                &PredefinedMenuItem::separator(),
+                &mode_menu,
+                &PredefinedMenuItem::separator(),
                 &open,
                 &quit,
             ])
@@ -164,7 +176,7 @@ mod win {
                 .with_menu(Box::new(menu))
                 // Clic gauche : ouvre la fenêtre ; clic droit : menu.
                 .with_menu_on_left_click(false)
-                .with_tooltip(TrayState::Idle.tooltip(shortcut))
+                .with_tooltip(TrayState::Idle.tooltip(shortcut, "Brut"))
                 .with_icon(icons[TrayState::Idle.index()].clone())
                 .build()
                 .context("création de l'icône de notification")?;
@@ -173,15 +185,47 @@ mod win {
                 icons,
                 shown: TrayState::Idle,
                 shortcut: shortcut.to_owned(),
+                mode_menu,
+                mode_label: "Brut".to_owned(),
             })
+        }
+
+        fn tooltip(&self) -> String {
+            self.shown.tooltip(&self.shortcut, &self.mode_label)
+        }
+
+        /// Remplit le sous-menu « Mode » (mode actif coché) et l'infobulle.
+        pub fn set_modes(&mut self, entries: &[MenuEntry], label: &str) {
+            self.mode_label = label.to_owned();
+            self.mode_menu.set_text(format!("Mode : {label}"));
+            while self.mode_menu.remove_at(0).is_some() {}
+            for entry in entries {
+                let added = match entry {
+                    MenuEntry::Header(text) => {
+                        self.mode_menu.append(&MenuItem::new(*text, false, None))
+                    }
+                    MenuEntry::Item { id, label, checked } => {
+                        self.mode_menu.append(&CheckMenuItem::with_id(
+                            format!("{MENU_MODE_PREFIX}{id}"),
+                            label,
+                            true,
+                            *checked,
+                            None,
+                        ))
+                    }
+                    MenuEntry::Separator => self.mode_menu.append(&PredefinedMenuItem::separator()),
+                };
+                if let Err(e) = added {
+                    log::warn!("menu des modes : {e}");
+                }
+            }
+            let _ = self.icon.set_tooltip(Some(self.tooltip()));
         }
 
         /// Met à jour les raccourcis cités dans l'infobulle.
         pub fn set_shortcuts(&mut self, shortcut: &str) {
             self.shortcut = shortcut.to_owned();
-            let _ = self
-                .icon
-                .set_tooltip(Some(self.shown.tooltip(&self.shortcut)));
+            let _ = self.icon.set_tooltip(Some(self.tooltip()));
         }
 
         pub fn set_state(&mut self, state: TrayState) {
@@ -190,7 +234,7 @@ mod win {
             }
             self.shown = state;
             let _ = self.icon.set_icon(Some(self.icons[state.index()].clone()));
-            let _ = self.icon.set_tooltip(Some(state.tooltip(&self.shortcut)));
+            let _ = self.icon.set_tooltip(Some(self.tooltip()));
         }
     }
 }
@@ -238,15 +282,25 @@ mod tests {
 
     #[test]
     fn tooltips_mention_shortcut() {
-        assert!(TrayState::Idle
-            .tooltip("Ctrl+Alt+Espace")
-            .contains("Ctrl+Alt+Espace"));
+        let idle = TrayState::Idle.tooltip("Ctrl+Alt+Espace", "→ Anglais");
+        assert!(idle.contains("Ctrl+Alt+Espace"), "{idle}");
+        assert!(idle.ends_with("→ Anglais"), "{idle}");
+        assert!(
+            TrayState::Idle
+                .tooltip(&"x".repeat(200), "Brut")
+                .chars()
+                .count()
+                <= 127
+        );
         // Limite Windows : 127 caractères.
         for s in TrayState::ALL {
             assert!(
-                s.tooltip("Ctrl+Alt+Espace, ou maintenir Alt+Maj+Espace")
-                    .chars()
-                    .count()
+                s.tooltip(
+                    "Ctrl+Alt+Espace, ou maintenir Alt+Maj+Espace",
+                    "E-mail client"
+                )
+                .chars()
+                .count()
                     < 128
             );
         }

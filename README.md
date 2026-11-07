@@ -250,11 +250,15 @@ raccourci (bascule ou maintien) :
 - **Réécrire** : professionnel, plus court, corriger les fautes, amical ;
 - **Personnalisé** : vos propres consignes (« Rédige un e-mail poli… »).
 
-En mode *Brut*, rien ne change. Le raccourci **Dicter en brut**
+Le mode se change d'un clic avec la **pastille de l'en-tête** (« → Anglais ▾ »),
+dans l'onglet **Modes** (qui gère aussi les langues et les consignes), dans la
+barre réduite, ou par un clic droit sur l'icône près de l'horloge (sous-menu
+*Mode*). En mode *Brut*, rien ne change. Le raccourci **Dicter en brut**
 (`Ctrl+Alt+T` par défaut) tape le texte tel que dicté, sans tenir compte du
 mode. L'IA est celle d'OpenAI
 ou de Mistral, avec la clé déjà saisie ; le modèle se choisit dans
-*Réglages → Transformation par IA* (bouton pour lire la liste des modèles
+*Réglages → Transformation par IA* (`gpt-5.4-mini` par défaut, le plus rapide ;
+la réflexion des modèles GPT-5 est désactivée pour répondre au plus vite) (bouton pour lire la liste des modèles
 chez le fournisseur). La réponse est tapée au fil de l'eau ; si l'IA échoue,
 le texte brut est tapé et le problème est signalé. L'historique garde les
 deux versions (*Voir l'original*).
