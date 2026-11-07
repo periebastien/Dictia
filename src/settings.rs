@@ -59,7 +59,7 @@ pub const LANGUAGES: [(&str, &str); 9] = [
     ("ar", "Arabe"),
 ];
 /// Couleurs d'accent proposées.
-pub const ACCENTS: [&str; 4] = ["#7C83FF", "#38BDF8", "#34D399", "#F59E0B"];
+pub const ACCENTS: [&str; 4] = ["#F59E0B", "#7C83FF", "#38BDF8", "#34D399"];
 
 /// Modification demandée par l'interface.
 #[derive(Debug, Clone, PartialEq, Deserialize)]

@@ -119,7 +119,7 @@ enabled = true
 
 [ui]
 # Couleur d'accent de la fenêtre Dictia.
-accent = "#7C83FF"
+accent = "#F59E0B"
 "##;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -144,7 +144,7 @@ pub struct UiConfig {
 impl Default for UiConfig {
     fn default() -> Self {
         Self {
-            accent: "#7C83FF".into(),
+            accent: "#F59E0B".into(),
         }
     }
 }

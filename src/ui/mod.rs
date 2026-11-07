@@ -161,7 +161,7 @@ impl SettingsView {
         start_with_windows: bool,
         microphones: &[String],
     ) -> Self {
-        const NAMES: [&str; 4] = ["Indigo", "Bleu ciel", "Vert", "Ambre"];
+        const NAMES: [&str; 4] = ["Orange", "Indigo", "Bleu ciel", "Vert"];
         let providers = Provider::ALL
             .into_iter()
             .map(|p| {
