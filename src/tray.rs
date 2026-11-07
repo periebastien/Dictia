@@ -37,11 +37,33 @@ impl TrayState {
 
 pub const ICON_SIZE: u32 = 32;
 
-/// Pastille colorée avec un micro blanc, en RGBA, lissée par
-/// suréchantillonnage 4×4.
+/// Couleur du micro : sombre comme le logo, blanc sur les fonds foncés.
+fn glyph_color(state: TrayState) -> [u8; 3] {
+    match state {
+        TrayState::Idle => [0x0E, 0x0E, 0x12],
+        _ => [0xFF, 0xFF, 0xFF],
+    }
+}
+
+/// Dans le carré à bords arrondis du logo (grille de 32 unités).
+fn in_rounded_square(x: f32, y: f32) -> bool {
+    const MARGIN: f32 = 1.0;
+    const RADIUS: f32 = 7.0;
+    let lo = MARGIN + RADIUS;
+    let hi = 32.0 - MARGIN - RADIUS;
+    let dx = (x.clamp(lo, hi) - x).abs();
+    let dy = (y.clamp(lo, hi) - y).abs();
+    (MARGIN..=32.0 - MARGIN).contains(&x)
+        && (MARGIN..=32.0 - MARGIN).contains(&y)
+        && dx * dx + dy * dy <= RADIUS * RADIUS
+}
+
+/// Carré coloré à bords arrondis avec un micro (comme le logo de
+/// `dictia.exe`), en RGBA, lissé par suréchantillonnage 4×4.
 pub fn icon_rgba(state: TrayState) -> Vec<u8> {
     const SS: u32 = 4;
     let [r, g, b] = state.color();
+    let ink = glyph_color(state);
     let mut rgba = Vec::with_capacity((ICON_SIZE * ICON_SIZE * 4) as usize);
     for py in 0..ICON_SIZE {
         for px in 0..ICON_SIZE {
@@ -51,7 +73,7 @@ pub fn icon_rgba(state: TrayState) -> Vec<u8> {
                     // Coordonnées normalisées sur une grille de 32 unités.
                     let x = (px as f32 + (sx as f32 + 0.5) / SS as f32) * 32.0 / ICON_SIZE as f32;
                     let y = (py as f32 + (sy as f32 + 0.5) / SS as f32) * 32.0 / ICON_SIZE as f32;
-                    if (x - 16.0).powi(2) + (y - 16.0).powi(2) <= 15.5f32.powi(2) {
+                    if in_rounded_square(x, y) {
                         disc += 1;
                         if in_microphone(x, y) {
                             glyph += 1;
@@ -60,12 +82,12 @@ pub fn icon_rgba(state: TrayState) -> Vec<u8> {
                 }
             }
             let n = (SS * SS) as f32;
-            let white = glyph as f32 / disc.max(1) as f32;
-            let mix = |c: u8| (f32::from(c) * (1.0 - white) + 255.0 * white).round() as u8;
+            let k = glyph as f32 / disc.max(1) as f32;
+            let mix = |c: u8, i: u8| (f32::from(c) * (1.0 - k) + f32::from(i) * k).round() as u8;
             rgba.extend([
-                mix(r),
-                mix(g),
-                mix(b),
+                mix(r, ink[0]),
+                mix(g, ink[1]),
+                mix(b, ink[2]),
                 (255.0 * disc as f32 / n).round() as u8,
             ]);
         }
@@ -187,8 +209,21 @@ mod tests {
         let rgba = icon_rgba(TrayState::Idle);
         assert_eq!(rgba.len(), (ICON_SIZE * ICON_SIZE * 4) as usize);
         assert_eq!(pixel(&rgba, 0, 0)[3], 0, "coin transparent");
-        assert_eq!(pixel(&rgba, 16, 12), [255, 255, 255, 255], "micro blanc");
+        assert_eq!(pixel(&rgba, 2, 2)[3], 0, "coin arrondi");
+        assert_eq!(
+            pixel(&rgba, 16, 12),
+            [0x0E, 0x0E, 0x12, 255],
+            "micro sombre"
+        );
         assert_eq!(pixel(&rgba, 4, 16), [0xF5, 0x9E, 0x0B, 255], "fond ambre");
+        // Carré, pas rond : le fond va jusqu'au bord, près des coins.
+        assert_eq!(pixel(&rgba, 4, 4)[3], 255, "carré");
+        let rec = icon_rgba(TrayState::Recording);
+        assert_eq!(
+            pixel(&rec, 16, 12),
+            [255, 255, 255, 255],
+            "micro blanc sur rouge"
+        );
     }
 
     #[test]
