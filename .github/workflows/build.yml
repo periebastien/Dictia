@@ -14,6 +14,8 @@ jobs:
   windows:
     name: Windows (build release + tests)
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -41,6 +43,20 @@ jobs:
           name: dictia-${{ github.sha }}
           path: target/release/dictia.exe
           if-no-files-found: error
+
+      # Lien fixe pour télécharger la dernière version :
+      # https://github.com/<dépôt>/releases/download/pc-latest/dictia.exe
+      - name: Publier le dernier dictia.exe
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete pc-latest --yes --cleanup-tag || true
+          gh release create pc-latest target/release/dictia.exe --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Dictia PC (dernière version)" \
+            --notes "dictia.exe produit automatiquement depuis la branche ${GITHUB_REF_NAME} (${GITHUB_SHA::7})."
 
   android:
     name: Android (APK + tests)
